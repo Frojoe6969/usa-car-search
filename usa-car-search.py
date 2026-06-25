@@ -600,6 +600,10 @@ def scrape_craigslist(ctx):
     results = []
     detail_page = ctx.new_page()
     for listing in candidates:
+        if listing.get("color") and color_matches_str(listing["color"]) and listing.get("distance") is not None:
+            print(f"[CL detail] skip fetch {listing['id']} — color+dist already known", file=sys.stderr)
+            results.append(listing)
+            continue
         result = _cl_visit_detail(detail_page, listing)
         if result is not None:
             results.append(result)
@@ -1088,32 +1092,90 @@ def fetch_ebay_api():
         for item in items:
             title = item.get("title", "")
             if not _has_model_kw(title): continue
-            try: price = float(item.get("price", {}).get("value", 0))
+            try: price = int(float(item.get("price", {}).get("value", 0)))
             except Exception: price = 0
             if price < MIN_PRICE: continue
-            year_m = YEAR_RE.search(title)
+            year_m = re.search(r'\b(20\d{2})\b', title)
             if not year_m: continue
             year = int(year_m.group(1))
-            color_m = re.search(r'\b(black|gray|grey|charcoal|graphite|dark|obsidian|magnetic|white|blue|red|silver)\b', title, re.I)
-            color_raw = color_m.group(0) if color_m else ""
-            if color_raw and not color_matches_str(color_raw, allow_unknown=True): continue
-            loc_data = item.get("itemLocation", {})
-            postal = loc_data.get("postalCode", "")
-            dist = zip_distance_miles(postal) if postal else None
-            if dist is not None and dist > RADIUS: continue
+            if not (MIN_YEAR <= year <= MAX_YEAR):
+                continue
             trim_m = re.search(r'\b(STI|Premium|Limited|Base|Sport)\b', title, re.I)
             trim = trim_m.group(0) if trim_m else ""
             results.append({
                 "id": f"eb_{item.get('itemId','')}",
+                "title": title,
                 "year": year, "trim": trim, "price": price, "mileage": None,
-                "color": color_raw, "color_str": color_raw,
-                "location": f"{loc_data.get('city','')}, {loc_data.get('stateOrProvince','')}".strip(", "),
-                "distance": int(dist) if dist is not None else None,
+                "color": "", "color_str": "",
+                "location": "", "distance": None,
                 "deal": "", "url": item.get("itemWebUrl", f"https://www.ebay.com/itm/{item.get('itemId','')}"),
                 "source": "eBay Motors",
             })
-    print(f"[eBay API] Total matches: {len(results)}", file=sys.stderr)
-    return results
+
+    # Enrich candidates with detail API: mileage, color, VIN, location, distance
+    print(f"[eBay API] Fetching details for {len(results)} candidates...", file=sys.stderr)
+    enriched = []
+    for r in results:
+        item_id = r["id"].replace("eb_", "")
+        detail_req = urllib.request.Request(
+            f"https://api.ebay.com/buy/browse/v1/item/{item_id}",
+            headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+        )
+        try:
+            with urllib.request.urlopen(detail_req, timeout=15) as resp:
+                d = json.loads(resp.read())
+        except Exception as e:
+            print(f"[eBay API] Detail fetch failed for {item_id}: {e}", file=sys.stderr)
+            continue
+
+        aspects = {a["name"].lower(): a["value"] for a in d.get("localizedAspects", [])}
+
+        mileage = None
+        for key in ("mileage", "odometer"):
+            if key in aspects:
+                try: mileage = int(re.sub(r'[^\d]', '', aspects[key]))
+                except Exception: pass
+                break
+        if mileage is not None and mileage > MAX_MILES:
+            print(f"[eBay API] skip {item_id} miles={mileage}", file=sys.stderr)
+            continue
+
+        color_raw = ""
+        for key in ("exterior color", "color"):
+            if key in aspects:
+                color_raw = aspects[key]
+                break
+        if not color_raw or not color_matches_str(color_raw, allow_unknown=False):
+            print(f"[eBay API] skip {item_id} color={color_raw!r}", file=sys.stderr)
+            continue
+
+        vin = ""
+        for key in ("vin", "vehicle identification number"):
+            if key in aspects:
+                candidate = re.sub(r'[^A-HJ-NPR-Z0-9]', '', aspects[key].upper())
+                if len(candidate) == 17:
+                    vin = candidate
+                break
+
+        loc = d.get("itemLocation", {})
+        postal = loc.get("postalCode", "")
+        city = loc.get("city", "")
+        state = loc.get("stateOrProvince", "")
+        location_str = f"{city}, {state}".strip(", ") or "N/A"
+        dist = zip_distance_miles(postal) if postal else None
+        if dist is None:
+            print(f"[eBay API] skip {item_id} — can't verify distance (postal={postal!r})", file=sys.stderr)
+            continue
+        if dist > RADIUS:
+            print(f"[eBay API] skip {item_id} dist={dist:.0f}mi ({location_str})", file=sys.stderr)
+            continue
+
+        r.update({"vin": vin, "mileage": mileage, "color": color_raw, "color_str": color_raw,
+                   "location": location_str, "distance": int(dist)})
+        enriched.append(r)
+
+    print(f"[eBay API] Total matches after detail filter: {len(enriched)}", file=sys.stderr)
+    return enriched
 
 
 def scrape_ebay(ctx):
@@ -1192,10 +1254,15 @@ def scrape_ebay(ctx):
         color_label_m = re.search(r"exterior colou?r[:\s]+([^\n]+)", dt, re.I)
         if color_label_m:
             color_raw = color_label_m.group(1).strip()
-            if "custom" in color_raw.lower(): continue
-            if not color_matches_str(color_raw): continue
+            if "custom" in color_raw.lower() or not color_matches_str(color_raw):
+                print(f"[eBay] skip {iid} color='{color_raw}'", file=sys.stderr)
+                continue
             item["color"] = color_raw
-        elif item["color"] and not color_matches_str(item["color"]): continue
+        elif item["color"] and color_matches_str(item["color"]):
+            pass  # card color confirmed
+        else:
+            print(f"[eBay] skip {iid} — no confirmed exterior color", file=sys.stderr)
+            continue
         zip_m = re.search(r'\b(\d{5})\b', item.get("location", ""))
         distance = zip_distance_miles(zip_m.group(1)) if zip_m else None
         if distance is not None and distance > RADIUS: continue
@@ -1206,7 +1273,7 @@ def scrape_ebay(ctx):
             "id": f"eb_{iid}", "vin": vin,
             "title": f"{item['year']} {SEARCH_MAKE} {SEARCH_MODEL} {item['trim']}".strip(),
             "year": item["year"], "trim": item["trim"], "price": item["price"],
-            "mileage": mileage, "color": item.get("color") or "Unknown",
+            "mileage": mileage, "color": item.get("color", ""),
             "color_str": item.get("color", ""),
             "location": item.get("location", "N/A"),
             "distance": int(distance) if distance is not None else None,
@@ -1445,12 +1512,12 @@ def send_telegram(message):
 def format_tg(r):
     price = f"${r['price']:,}" if r.get("price") else "N/A"
     miles = f"{r['mileage']:,} mi" if r.get("mileage") else "N/A"
-    dist = f" · {r['distance']} mi away" if r.get("distance") else ""
+    dist = f" · {r['distance']} mi away" if r.get("distance") is not None else ""
     deal = f" [{r['deal']}]" if r.get("deal") else ""
     return (
-        f"🚗 <b>{r['title']}</b>{deal}\n"
+        f"🚗 <b>{r.get('title','(no title)')}</b>{deal}\n"
         f"💰 {price}  📏 {miles}\n"
-        f"🎨 {r['color']}  📍 {r['location']}{dist}\n"
+        f"🎨 {r.get('color','?')}  📍 {r.get('location','?')}{dist}\n"
         f"🔗 {r['url']}  <i>({r.get('source','')})</i>"
     )
 
@@ -1458,15 +1525,38 @@ def format_tg(r):
 def print_result(r, tag=""):
     price = f"${r['price']:,}" if r.get("price") else "N/A"
     miles = f"{r['mileage']:,} mi" if r.get("mileage") else "N/A"
-    dist = f" ({r['distance']} mi away)" if r.get("distance") else ""
+    dist = f" ({r['distance']} mi away)" if r.get("distance") is not None else ""
     label = f"[{tag}] " if tag else "  "
-    print(f"{label}{r['title']}  [{r.get('source','')}]")
+    print(f"{label}{r.get('title','(no title)')}  [{r.get('source','')}]")
     print(f"    Price:  {price}  |  Mileage: {miles}")
     print(f"    Color:  {r.get('color','?')}")
     print(f"    Where:  {r.get('location','?')}{dist}")
     print(f"    Deal:   {r.get('deal','?')}")
     print(f"    URL:    {r['url']}")
     print()
+
+
+def score_deals(listings):
+    """Fill in deal rating for listings missing one, based on price vs median of all priced listings."""
+    prices = [r["price"] for r in listings if r.get("price")]
+    if not prices:
+        return listings
+    median = sorted(prices)[len(prices) // 2]
+    for r in listings:
+        if r.get("deal") or not r.get("price"):
+            continue
+        pct = (r["price"] - median) / median
+        if pct <= -0.10:
+            r["deal"] = "Great Deal"
+        elif pct <= -0.04:
+            r["deal"] = "Good Deal"
+        elif pct <= 0.04:
+            r["deal"] = "Fair Deal"
+        elif pct <= 0.12:
+            r["deal"] = "High Priced"
+        else:
+            r["deal"] = "Overpriced"
+    return listings
 
 
 def main():
@@ -1476,6 +1566,7 @@ def main():
     args = parser.parse_args()
 
     listings = scrape()
+    listings = score_deals(listings)
     seen_ids, seen_vins = load_seen()
     current_ids = {r["id"] for r in listings}
 
