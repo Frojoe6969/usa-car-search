@@ -1563,14 +1563,17 @@ def scrape():
         fp = (_norm(r.get("year")), _norm(r.get("mileage")), _norm(r.get("price")))
         if vin and len(vin) == 17:
             if vin in seen_vins:
-                print(f"[Dedup] VIN match — dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
+                print(f"[Dedup] VIN match -- dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
+                continue
+            if fp != (None, None, None) and fp in seen_fp:
+                print(f"[Dedup] Fingerprint match (VIN path) {fp} -- dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
                 continue
             seen_vins.add(vin)
         else:
             if fp in seen_fp and fp != (None, None, None):
-                print(f"[Dedup] Fingerprint match {fp} — dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
+                print(f"[Dedup] Fingerprint match {fp} -- dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
                 continue
-            seen_fp.add(fp)
+        seen_fp.add(fp)
         all_results.append(r)
 
     all_results.sort(key=lambda r: r.get("price") or 999999)
