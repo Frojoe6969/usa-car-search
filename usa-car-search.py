@@ -874,57 +874,72 @@ def scrape_facebook(ctx):
 # connect via a real Chrome instance for much better results.
 # See README.md for setup.
 
-def _chrome_cdp_url():
-    if not CHROME_CDP_HOST:
-        return None
-    import socket, subprocess, time
+_CHROME_LAUNCH_PATHS = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+]
+_CHROME_LAUNCH_ARGS = [
+    "--remote-debugging-port=9222",
+    "--remote-allow-origins=*",
+    "--no-first-run", "--no-default-browser-check",
+    "--user-data-dir=C:\\Temp\\chrome-debug",
+]
 
-    def reachable():
-        try:
-            s = socket.create_connection((CHROME_CDP_HOST, CHROME_CDP_PORT), timeout=2)
-            s.close()
-            return True
-        except OSError:
-            return False
 
-    if reachable():
-        return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
+def _chrome_reachable():
+    import socket
+    try:
+        s = socket.create_connection((CHROME_CDP_HOST, CHROME_CDP_PORT), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
 
-    print("[AutoTrader] Chrome CDP not running — attempting to launch Chrome on Windows...", file=sys.stderr)
-    chrome_paths = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ]
-    launched = False
-    for chrome_path in chrome_paths:
+
+def _chrome_kill():
+    import subprocess
+    try:
+        subprocess.run(["cmd.exe", "/c", "taskkill", "/F", "/IM", "chrome.exe"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        __import__("time").sleep(2)
+    except Exception:
+        pass
+
+
+def _chrome_launch_and_wait():
+    import subprocess, time
+    for chrome_path in _CHROME_LAUNCH_PATHS:
         wsl_path = "/mnt/c" + chrome_path[2:].replace("\\", "/")
         if not os.path.exists(wsl_path):
             continue
         try:
-            subprocess.Popen(
-                ["cmd.exe", "/c", "start", "", chrome_path,
-                 f"--remote-debugging-port={CHROME_CDP_PORT}",
-                 "--remote-allow-origins=*",
-                 "--no-first-run", "--no-default-browser-check",
-                 "--user-data-dir=C:\\Temp\\chrome-debug"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            launched = True
-            break
+            subprocess.Popen(["cmd.exe", "/c", "start", "", chrome_path] + _CHROME_LAUNCH_ARGS,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             print(f"[AutoTrader] Failed to launch Chrome: {e}", file=sys.stderr)
+            continue
+        for _ in range(15):
+            time.sleep(1)
+            if _chrome_reachable():
+                print("[AutoTrader] Chrome CDP is now available", file=sys.stderr)
+                return True
+        print("[AutoTrader] Chrome launched but CDP not reachable after 15s", file=sys.stderr)
+        return False
+    print("[AutoTrader] Could not find Chrome on Windows", file=sys.stderr)
+    return False
 
-    if not launched:
-        print("[AutoTrader] Could not find or launch Chrome on Windows", file=sys.stderr)
+
+def _chrome_cdp_url(force_relaunch=False):
+    if not CHROME_CDP_HOST:
         return None
-
-    for _ in range(15):
-        time.sleep(1)
-        if reachable():
-            print("[AutoTrader] Chrome CDP is now available", file=sys.stderr)
-            return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
-
-    print("[AutoTrader] Chrome launched but CDP not reachable after 15s", file=sys.stderr)
+    if force_relaunch:
+        print("[AutoTrader] Relaunching Chrome (stale CDP session)...", file=sys.stderr)
+        _chrome_kill()
+    if not force_relaunch and _chrome_reachable():
+        return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
+    print("[AutoTrader] Chrome CDP not running -- launching Chrome on Windows...", file=sys.stderr)
+    if _chrome_launch_and_wait():
+        return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
     return None
 
 
@@ -1035,34 +1050,40 @@ def _autotrader_parse_page(page):
 
 
 def scrape_autotrader_cdp(pw):
-    cdp_url = _chrome_cdp_url()
-    if not cdp_url:
-        print("[AutoTrader] Chrome CDP not available — falling back to Playwright", file=sys.stderr)
-        return None
-    print("[AutoTrader] Connecting via Chrome CDP...", file=sys.stderr)
-    try:
-        browser = pw.chromium.connect_over_cdp(cdp_url, timeout=10000)
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
-        page.goto(AUTOTRADER_URL, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(4000)
-        title = page.title() or ""
-        if "unavailable" in title.lower() or "blocked" in title.lower():
+    for attempt in range(2):
+        cdp_url = _chrome_cdp_url(force_relaunch=(attempt > 0))
+        if not cdp_url:
+            print("[AutoTrader] Chrome CDP not available -- falling back to Playwright", file=sys.stderr)
+            return None
+        print("[AutoTrader] Connecting via Chrome CDP...", file=sys.stderr)
+        try:
+            browser = pw.chromium.connect_over_cdp(cdp_url, timeout=10000)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = ctx.new_page()
+            page.goto(AUTOTRADER_URL, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)
+            title = page.title() or ""
+            if "unavailable" in title.lower() or "blocked" in title.lower():
+                page.close()
+                try: browser.disconnect()
+                except: pass
+                return []
+            for scroll_y in [800, 2000, 4000]:
+                page.evaluate(f"window.scrollTo(0, {scroll_y})")
+                page.wait_for_timeout(800)
+            results = _autotrader_parse_page(page)
             page.close()
             try: browser.disconnect()
             except: pass
-            return []
-        for scroll_y in [800, 2000, 4000]:
-            page.evaluate(f"window.scrollTo(0, {scroll_y})")
-            page.wait_for_timeout(800)
-        results = _autotrader_parse_page(page)
-        page.close()
-        try: browser.disconnect()
-        except: pass
-        return results
-    except Exception as e:
-        print(f"[AutoTrader] CDP error: {e}", file=sys.stderr)
-        return None
+            return results
+        except Exception as e:
+            err = str(e)
+            print(f"[AutoTrader] CDP error: {err}", file=sys.stderr)
+            if ("ECONNRESET" in err or "ECONNREFUSED" in err) and attempt == 0:
+                print("[AutoTrader] Connection reset -- killing and relaunching Chrome...", file=sys.stderr)
+                continue
+            return None
+    return None
 
 
 def scrape_autotrader(page):
