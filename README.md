@@ -14,7 +14,7 @@ Works for any make and model. Built for reliability across sites with different 
 | Craigslist | Browser scrape | Multi-region, keyword search |
 | AutoTrader | Browser scrape | Chrome CDP recommended |
 | Facebook Marketplace | Browser scrape | Requires saved session |
-| eBay Motors | API + scrape | API recommended |
+| eBay Motors | API + scrape | OAuth recommended (auto-refresh) |
 | auto.dev | API | Free key |
 
 ---
@@ -153,12 +153,38 @@ FB_CITY=losangeles   # → facebook.com/marketplace/losangeles/search
 
 ### eBay Motors (Browse API — recommended)
 
-1. Sign up at [developer.ebay.com](https://developer.ebay.com)
-2. Create a production app
-3. Go to **User Tokens** → generate a User OAuth Token (expires ~18 months)
-4. Save the token to `ebay-token.txt`
+The scraper uses eBay's OAuth flow and automatically refreshes the access token before it expires. You only need to set this up once and it will stay valid for ~18 months.
 
-The scraper falls back to page scraping if no token is found.
+**One-time setup:**
+
+1. Sign up at [developer.ebay.com](https://developer.ebay.com) and create a Production app
+2. Under your app, go to **User Tokens** → note your **RuName** (eBay Redirect URL name)
+3. Construct the OAuth authorization URL:
+   ```
+   https://auth.ebay.com/oauth2/authorize
+     ?client_id=YOUR-CLIENT-ID
+     &response_type=code
+     &redirect_uri=YOUR-RUNAME
+     &scope=https://api.ebay.com/oauth/api_scope
+   ```
+4. Open the URL in your browser, sign in with your eBay account, click **Agree and Continue**
+5. Copy the full redirect URL from the address bar (it contains `?code=...`)
+6. Run the setup script:
+   ```bash
+   python3 ebay-oauth-setup.py
+   ```
+   Paste the redirect URL when prompted. The script exchanges the code for an access token and refresh token, saving both locally.
+
+Set your app credentials in `.env`:
+```env
+EBAY_CLIENT_ID=YourApp-PRD-xxxxxxxxxxxx
+EBAY_CLIENT_SECRET=PRD-xxxxxxxxxxxx
+EBAY_RUNAME=YourRuName-here
+```
+
+The scraper will auto-refresh the access token on every run (and retry automatically on 401). The refresh token lasts ~18 months — re-run `ebay-oauth-setup.py` once it expires.
+
+The scraper falls back to page scraping if no token is configured.
 
 ### auto.dev
 
@@ -202,7 +228,9 @@ $wsl = (wsl hostname -I).Trim()
 netsh interface portproxy add v4tov4 listenport=9222 listenaddress=0.0.0.0 connectport=9222 connectaddress=$wsl
 ```
 
-If Chrome CDP is not configured, the scraper falls back to Playwright's Chromium automatically.
+If Chrome CDP is not configured or times out, the scraper falls back to Playwright's Chromium automatically.
+
+> **Note:** The CDP connect call uses a 10-second timeout. If Chrome is unreachable or busy, AutoTrader is skipped gracefully rather than hanging the entire run.
 
 ---
 
