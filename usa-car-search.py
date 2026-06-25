@@ -168,6 +168,21 @@ try:
         except Exception:
             pass
         return None, None
+    def city_to_state_and_distance(city_name):
+        try:
+            df = _nomi._data
+            matches = df[df['place_name'].str.lower() == city_name.lower()]
+            best = None
+            for _, row in matches.iterrows():
+                if row.latitude != row.latitude or row.longitude != row.longitude:
+                    continue
+                d = haversine_miles(ORIGIN_LAT, ORIGIN_LON, float(row.latitude), float(row.longitude))
+                if d is not None and d <= RADIUS:
+                    if best is None or d < best[1]:
+                        best = (str(row.state_code), int(d))
+            return best
+        except Exception:
+            return None
     HAS_PGEOCODE = True
 except ImportError:
     HAS_PGEOCODE = False
@@ -175,6 +190,8 @@ except ImportError:
         return None, None
     def zip_to_city_state(zipcode):
         return None, None
+    def city_to_state_and_distance(city_name):
+        return None
 
 # Derive origin lat/lon from SEARCH_ZIP at startup
 _origin = zip_to_latlon(ZIP)
@@ -391,15 +408,20 @@ def _cg_parse(data):
     city = seller.get("city") or seller.get("cityRegion") or ""
     state = seller.get("stateAbbreviation") or seller.get("state") or seller.get("region") or ""
     seller_zip = seller.get("postalCode") or seller.get("zip") or ""
+    distance = data.get("distance")
+    if isinstance(distance, float): distance = int(distance)
     if not state and seller_zip:
         _, s = zip_to_city_state(str(seller_zip)[:5])
         if s: state = s
-    location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
-    distance = data.get("distance")
-    if isinstance(distance, float): distance = int(distance)
+    if (not state or distance is None) and city:
+        result = city_to_state_and_distance(city)
+        if result:
+            if not state: state = result[0]
+            if distance is None: distance = result[1]
     if distance is None and seller_zip:
         d = zip_distance_miles(str(seller_zip)[:5])
         if d is not None: distance = int(d)
+    location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
     lid = data.get("id") or data.get("listingId")
     color_name = color_data.get("name") or "Unknown"
     color_norm = (color_data.get("normalized") or "").upper()
