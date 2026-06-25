@@ -19,6 +19,7 @@ Setup:
 """
 
 import json, re, sys, os, argparse, urllib.request, urllib.parse, math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 # ── Load .env if present ──────────────────────────────────────────────────────
@@ -597,17 +598,34 @@ def scrape_craigslist(ctx):
             "source": f"Craigslist/{region}",
         })
     print(f"[Craigslist] Candidates before detail: {len(candidates)}", file=sys.stderr)
-    results = []
-    detail_page = ctx.new_page()
+    skip_list = []
+    need_detail = []
     for listing in candidates:
         if listing.get("color") and color_matches_str(listing["color"]) and listing.get("distance") is not None:
             print(f"[CL detail] skip fetch {listing['id']} — color+dist already known", file=sys.stderr)
-            results.append(listing)
-            continue
-        result = _cl_visit_detail(detail_page, listing)
-        if result is not None:
-            results.append(result)
-    detail_page.close()
+            skip_list.append(listing)
+        else:
+            need_detail.append(listing)
+
+    CL_WORKERS = min(4, len(need_detail)) if need_detail else 1
+
+    def _visit_with_own_page(listing):
+        page = ctx.new_page()
+        try:
+            return _cl_visit_detail(page, listing)
+        finally:
+            page.close()
+
+    detail_results = []
+    if need_detail:
+        with ThreadPoolExecutor(max_workers=CL_WORKERS) as pool:
+            futs = {pool.submit(_visit_with_own_page, lst): lst for lst in need_detail}
+            for fut in as_completed(futs):
+                r = fut.result()
+                if r is not None:
+                    detail_results.append(r)
+
+    results = skip_list + detail_results
     print(f"[Craigslist] After detail filter: {len(results)}", file=sys.stderr)
     return results
 
@@ -808,14 +826,32 @@ def scrape_facebook(ctx):
         trim_m = re.search(r"\b(premium|limited|sti|sport|base)\b", dt, re.I)
         trim = trim_m.group(0).title() if trim_m else ""
         if not trim_matches(trim): continue
-        loc_m = re.search(r"in ([A-Z][a-zA-Z\s]+),\s*[A-Z]{2}", dt)
-        location = loc_m.group(1).strip() if loc_m else "N/A"
+        loc_m = re.search(r"in ([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})", dt)
+        if loc_m:
+            city_name, state_abbr = loc_m.group(1).strip(), loc_m.group(2)
+            location = f"{city_name}, {state_abbr}"
+        else:
+            city_name, state_abbr, location = "", "", "N/A"
+        distance = None
+        if city_name and state_abbr:
+            try:
+                import pgeocode
+                nomi = pgeocode.Nominatim("us")
+                df = nomi._data_frame
+                rows = df[(df['place_name'].str.lower() == city_name.lower()) & (df['state_code'] == state_abbr)]
+                if not rows.empty:
+                    flat = float(rows.iloc[0]['latitude']); flon = float(rows.iloc[0]['longitude'])
+                    distance = int(haversine_miles(ORIGIN_LAT, ORIGIN_LON, flat, flon))
+            except Exception:
+                pass
+        if distance is not None and distance > RADIUS:
+            continue
         results.append({
             "id": f"fb_{pid}", "vin": "",
             "title": f"{year} {SEARCH_MAKE} {SEARCH_MODEL} {trim}".strip(),
             "year": year, "trim": trim, "price": price, "mileage": mileage,
             "color": color_raw or "Unknown", "color_str": color_raw,
-            "location": location, "distance": None, "deal": "", "url": href,
+            "location": location, "distance": distance, "deal": "", "url": href,
             "source": "Facebook",
         })
     detail_page.close()
@@ -1470,17 +1506,18 @@ def load_seen():
         try:
             data = json.loads(open(SEEN_FILE).read())
             if isinstance(data, dict):
-                return set(data.get("ids", [])), set(data.get("vins", []))
-            return set(data), set()
+                return set(data.get("ids", [])), set(data.get("vins", [])), data.get("prices", {})
+            return set(data), set(), {}
         except Exception: pass
-    return set(), set()
+    return set(), set(), {}
 
 
 def save_seen(listings):
     ids = sorted({r["id"] for r in listings})
     vins = sorted({r["vin"] for r in listings if r.get("vin") and len(r["vin"]) == 17})
+    prices = {r["id"]: r["price"] for r in listings if r.get("price")}
     with open(SEEN_FILE, "w") as f:
-        json.dump({"ids": ids, "vins": vins}, f, indent=2)
+        json.dump({"ids": ids, "vins": vins, "prices": prices}, f, indent=2)
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -1567,8 +1604,13 @@ def main():
 
     listings = scrape()
     listings = score_deals(listings)
-    seen_ids, seen_vins = load_seen()
+    seen_ids, seen_vins, seen_prices = load_seen()
     current_ids = {r["id"] for r in listings}
+    price_drops = {}
+    for r in listings:
+        old = seen_prices.get(r["id"])
+        if old and r.get("price") and r["price"] < old:
+            price_drops[r["id"]] = old - r["price"]
 
     def is_new(r):
         if r["id"] in seen_ids: return False
@@ -1588,23 +1630,35 @@ def main():
         print("  No matching listings found.")
     else:
         for r in listings:
-            print_result(r, "NEW" if is_new(r) else "   ")
+            tag = "NEW" if is_new(r) else ("DRP" if r["id"] in price_drops else "   ")
+            print_result(r, tag)
+            if r["id"] in price_drops:
+                print(f"    📉 Price dropped ${price_drops[r['id']]:,} since last run\n")
 
     if sold_ids:
         print(f"  ── {len(sold_ids)} previously seen listing(s) no longer found ──\n")
 
     if args.notify:
-        lines = [f"🚗 <b>{SEARCH_MAKE} {SEARCH_MODEL} Search</b> — {datetime.now().strftime('%b %d, %Y')}\n"]
-        if listings:
-            lines.append(f"<b>✅ {len(listings)} active listing(s):</b>\n")
-            for r in listings[:10]:
-                lines.append(("🆕 " if is_new(r) else "") + format_tg(r))
-                lines.append("")
+        header = f"🚗 <b>{SEARCH_MAKE} {SEARCH_MODEL} Search</b> — {datetime.now().strftime('%b %d, %Y')}\n"
+        if not listings:
+            send_telegram(header + "No active listings found today.")
         else:
-            lines.append("No active listings found today.\n")
+            BATCH = 5
+            for batch_start in range(0, len(listings), BATCH):
+                batch = listings[batch_start:batch_start + BATCH]
+                lines = []
+                if batch_start == 0:
+                    lines.append(header)
+                    lines.append(f"<b>✅ {len(listings)} active listing(s):</b>\n")
+                for r in batch:
+                    prefix = "🆕 " if is_new(r) else ""
+                    drop = price_drops.get(r["id"])
+                    drop_str = f" 📉 <b>-${drop:,}</b>" if drop else ""
+                    lines.append(prefix + format_tg(r) + drop_str)
+                    lines.append("")
+                send_telegram("\n".join(lines))
         if sold_ids:
-            lines.append(f"<b>❌ {len(sold_ids)} sold/removed since last check</b>")
-        send_telegram("\n".join(lines))
+            send_telegram(f"<b>❌ {len(sold_ids)} listing(s) sold/removed since last check</b>")
 
     save_seen(listings)
 
