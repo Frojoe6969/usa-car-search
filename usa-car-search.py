@@ -389,21 +389,17 @@ def _cg_parse(data):
     trim = onto.get("trimName") or ""
     title = data.get("listingTitle") or f"{year} {onto.get('makeName',SEARCH_MAKE)} {onto.get('modelName',SEARCH_MODEL)} {trim}".strip()
     city = seller.get("city") or seller.get("cityRegion") or ""
-    state = seller.get("stateAbbreviation") or seller.get("state") or ""
+    state = seller.get("stateAbbreviation") or seller.get("state") or seller.get("region") or ""
+    seller_zip = seller.get("postalCode") or seller.get("zip") or ""
+    if not state and seller_zip:
+        _, s = zip_to_city_state(str(seller_zip)[:5])
+        if s: state = s
     location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
     distance = data.get("distance")
     if isinstance(distance, float): distance = int(distance)
-    if distance is None:
-        seller_zip = seller.get("zip") or seller.get("postalCode") or ""
-        if seller_zip:
-            d = zip_distance_miles(str(seller_zip)[:5])
-            if d is not None: distance = int(d)
-    if distance is None:
-        lat = seller.get("latitude") or data.get("latitude")
-        lon = seller.get("longitude") or data.get("longitude")
-        if lat and lon:
-            try: distance = int(haversine_miles(ORIGIN_LAT, ORIGIN_LON, float(lat), float(lon)))
-            except Exception: pass
+    if distance is None and seller_zip:
+        d = zip_distance_miles(str(seller_zip)[:5])
+        if d is not None: distance = int(d)
     lid = data.get("id") or data.get("listingId")
     color_name = color_data.get("name") or "Unknown"
     color_norm = (color_data.get("normalized") or "").upper()
