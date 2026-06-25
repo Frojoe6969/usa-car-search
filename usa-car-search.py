@@ -1558,9 +1558,12 @@ def scrape():
     def _norm(v):
         try: return int(round(float(v))) if v is not None else None
         except (TypeError, ValueError): return None
+    def _norm_price(v):
+        try: return int(round(float(v) / 500)) if v is not None else None
+        except (TypeError, ValueError): return None
     for r in cg_results + cl_results + cd_results + at_results + ad_results + fb_results + eb_results:
         vin = (r.get("vin") or "").strip().upper()
-        fp = (_norm(r.get("year")), _norm(r.get("mileage")), _norm(r.get("price")))
+        fp = (_norm(r.get("year")), _norm(r.get("mileage")), _norm_price(r.get("price")))
         if vin and len(vin) == 17:
             if vin in seen_vins:
                 print(f"[Dedup] VIN match -- dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
