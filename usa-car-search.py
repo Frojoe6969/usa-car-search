@@ -1057,7 +1057,7 @@ def _ebay_refresh_access_token():
     data = urllib.parse.urlencode({
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
-        "scope": "https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/buy.item.summary",
+        "scope": "https://api.ebay.com/oauth/api_scope",
     }).encode()
     req = urllib.request.Request(
         "https://api.ebay.com/identity/v1/oauth2/token",
