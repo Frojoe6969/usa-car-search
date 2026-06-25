@@ -16,7 +16,7 @@ if not CLIENT_ID or not CLIENT_SECRET or not RUNAME:
     sys.exit(1)
 TOKEN_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebay-token.txt")
 REFRESH_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebay-refresh-token.txt")
-SCOPES        = "https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/buy.item.summary"
+SCOPES        = "https://api.ebay.com/oauth/api_scope"
 
 auth_url = (
     f"https://auth.ebay.com/oauth2/authorize"
