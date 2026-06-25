@@ -610,11 +610,19 @@ def scrape_craigslist(ctx):
     CL_WORKERS = min(4, len(need_detail)) if need_detail else 1
 
     def _visit_with_own_page(listing):
-        page = ctx.new_page()
-        try:
-            return _cl_visit_detail(page, listing)
-        finally:
-            page.close()
+        # Playwright sync contexts are bound to the thread that created them.
+        # Give each worker its own tiny browser/context to keep parallel CL
+        # detail fetches from tripping greenlet thread switching errors.
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            thread_ctx = browser.new_context()
+            page = thread_ctx.new_page()
+            try:
+                return _cl_visit_detail(page, listing)
+            finally:
+                page.close()
+                thread_ctx.close()
+                browser.close()
 
     detail_results = []
     if need_detail:
