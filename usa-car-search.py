@@ -75,7 +75,11 @@ TG_TOPIC_ID = os.environ.get("TG_TOPIC_ID", "")  # Optional: forum/topic thread 
 
 # -- API keys --
 AD_API_KEY      = os.environ.get("AUTODEV_API_KEY", "")      # free at https://auto.dev
-EBAY_TOKEN_FILE = os.environ.get("EBAY_TOKEN_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebay-token.txt"))
+EBAY_TOKEN_FILE         = os.environ.get("EBAY_TOKEN_FILE",         os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebay-token.txt"))
+EBAY_REFRESH_TOKEN_FILE = os.environ.get("EBAY_REFRESH_TOKEN_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebay-refresh-token.txt"))
+EBAY_CLIENT_ID          = os.environ.get("EBAY_CLIENT_ID",          "")
+EBAY_CLIENT_SECRET      = os.environ.get("EBAY_CLIENT_SECRET",      "")
+EBAY_RUNAME             = os.environ.get("EBAY_RUNAME",             "")
 
 # -- AutoTrader Chrome CDP (bypasses bot detection) --
 # Set CHROME_CDP_HOST to your Windows gateway IP when running from WSL2.
@@ -947,7 +951,7 @@ def scrape_autotrader_cdp(pw):
         return None
     print("[AutoTrader] Connecting via Chrome CDP...", file=sys.stderr)
     try:
-        browser = pw.chromium.connect_over_cdp(cdp_url)
+        browser = pw.chromium.connect_over_cdp(cdp_url, timeout=10000)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
         page.goto(AUTOTRADER_URL, wait_until="domcontentloaded", timeout=45000)
@@ -993,10 +997,66 @@ def scrape_autotrader(page):
 # Searches using SEARCH_KEYWORDS via the Browse API (recommended) or page scraping.
 # API requires an eBay User Token in ebay-token.txt — see README.md.
 
-def _ebay_oauth_token():
-    if os.path.exists(EBAY_TOKEN_FILE):
-        return open(EBAY_TOKEN_FILE).read().strip()
+def _ebay_refresh_access_token():
+    """Use the refresh token to get a new access token. Returns token or None."""
+    if not os.path.exists(EBAY_REFRESH_TOKEN_FILE):
+        return None
+    refresh_token = open(EBAY_REFRESH_TOKEN_FILE).read().strip()
+    if not refresh_token or not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+        return None
+    import base64 as _b64
+    creds = _b64.b64encode(f"{EBAY_CLIENT_ID}:{EBAY_CLIENT_SECRET}".encode()).decode()
+    data = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": "https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/buy.item.summary",
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.ebay.com/identity/v1/oauth2/token",
+        data=data,
+        headers={
+            "Authorization": f"Basic {creds}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            resp = json.loads(r.read())
+        token = resp.get("access_token", "")
+        if token:
+            with open(EBAY_TOKEN_FILE, "w") as f:
+                f.write(token)
+            print("[eBay API] Token refreshed successfully.", file=sys.stderr)
+            return token
+    except Exception as e:
+        print(f"[eBay API] Token refresh failed: {e}", file=sys.stderr)
     return None
+
+
+def _ebay_oauth_token():
+    token = None
+    if os.path.exists(EBAY_TOKEN_FILE):
+        token = open(EBAY_TOKEN_FILE).read().strip()
+    if not token:
+        token = _ebay_refresh_access_token()
+    if not token:
+        return None
+    # Test the token; if expired (401), try to refresh
+    test_req = urllib.request.Request(
+        "https://api.ebay.com/buy/browse/v1/item_summary/search?q=test&limit=1",
+        headers={"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
+    )
+    try:
+        with urllib.request.urlopen(test_req, timeout=10) as r:
+            r.read()
+        return token
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            print("[eBay API] Token expired — attempting refresh...", file=sys.stderr)
+            return _ebay_refresh_access_token()
+    except Exception:
+        pass
+    return token
 
 
 def fetch_ebay_api():
