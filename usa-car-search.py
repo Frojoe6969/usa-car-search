@@ -380,6 +380,17 @@ def _cg_parse(data):
     location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
     distance = data.get("distance")
     if isinstance(distance, float): distance = int(distance)
+    if distance is None:
+        seller_zip = seller.get("zip") or seller.get("postalCode") or ""
+        if seller_zip:
+            d = zip_distance_miles(str(seller_zip)[:5])
+            if d is not None: distance = int(d)
+    if distance is None:
+        lat = seller.get("latitude") or data.get("latitude")
+        lon = seller.get("longitude") or data.get("longitude")
+        if lat and lon:
+            try: distance = int(haversine_miles(ORIGIN_LAT, ORIGIN_LON, float(lat), float(lon)))
+            except Exception: pass
     lid = data.get("id") or data.get("listingId")
     color_name = color_data.get("name") or "Unknown"
     color_norm = (color_data.get("normalized") or "").upper()
