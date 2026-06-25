@@ -272,6 +272,9 @@ crontab -e
 - Listings that disappear (sold/removed) are counted and reported
 - Deduplication happens across sources using VIN (when available) or a year/mileage/price fingerprint
 - Distance is computed as the haversine distance from `SEARCH_ZIP` using the `pgeocode` library
+- Deal ratings (Great Deal / Good Deal / Fair Deal / High Priced / Overpriced) are shown for all sources; for sources that don't provide their own rating (eBay, Craigslist, etc.) the rating is computed by comparing the listing price to the median price across all results in the run
+- eBay listings require a confirmed exterior color and a verifiable postal code — unknowns are skipped rather than passed through
+- Craigslist skips redundant detail page loads when color and distance are already known from the search card
 
 ---
 
