@@ -877,13 +877,55 @@ def scrape_facebook(ctx):
 def _chrome_cdp_url():
     if not CHROME_CDP_HOST:
         return None
-    import socket
-    try:
-        s = socket.create_connection((CHROME_CDP_HOST, CHROME_CDP_PORT), timeout=2)
-        s.close()
+    import socket, subprocess, time
+
+    def reachable():
+        try:
+            s = socket.create_connection((CHROME_CDP_HOST, CHROME_CDP_PORT), timeout=2)
+            s.close()
+            return True
+        except OSError:
+            return False
+
+    if reachable():
         return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
-    except OSError:
+
+    print("[AutoTrader] Chrome CDP not running — attempting to launch Chrome on Windows...", file=sys.stderr)
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    launched = False
+    for chrome_path in chrome_paths:
+        wsl_path = "/mnt/c" + chrome_path[2:].replace("\\", "/")
+        if not os.path.exists(wsl_path):
+            continue
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", "start", "", chrome_path,
+                 f"--remote-debugging-port={CHROME_CDP_PORT}",
+                 "--remote-allow-origins=*",
+                 "--no-first-run", "--no-default-browser-check",
+                 "--user-data-dir=C:\\Temp\\chrome-debug"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            launched = True
+            break
+        except Exception as e:
+            print(f"[AutoTrader] Failed to launch Chrome: {e}", file=sys.stderr)
+
+    if not launched:
+        print("[AutoTrader] Could not find or launch Chrome on Windows", file=sys.stderr)
         return None
+
+    for _ in range(15):
+        time.sleep(1)
+        if reachable():
+            print("[AutoTrader] Chrome CDP is now available", file=sys.stderr)
+            return f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}"
+
+    print("[AutoTrader] Chrome launched but CDP not reachable after 15s", file=sys.stderr)
+    return None
 
 
 def _autotrader_parse_page(page):
