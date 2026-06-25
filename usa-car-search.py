@@ -899,7 +899,7 @@ def _chrome_reachable():
 def _chrome_kill():
     import subprocess
     try:
-        subprocess.run(["cmd.exe", "/c", "taskkill", "/F", "/IM", "chrome.exe"],
+        subprocess.run(["/mnt/c/Windows/System32/cmd.exe", "/c", "taskkill", "/F", "/IM", "chrome.exe"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         __import__("time").sleep(2)
     except Exception:
@@ -913,7 +913,7 @@ def _chrome_launch_and_wait():
         if not os.path.exists(wsl_path):
             continue
         try:
-            subprocess.Popen(["cmd.exe", "/c", "start", "", chrome_path] + _CHROME_LAUNCH_ARGS,
+            subprocess.Popen(["/mnt/c/Windows/System32/cmd.exe", "/c", "start", "", chrome_path] + _CHROME_LAUNCH_ARGS,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             print(f"[AutoTrader] Failed to launch Chrome: {e}", file=sys.stderr)
