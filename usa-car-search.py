@@ -157,10 +157,23 @@ try:
         except Exception:
             pass
         return None, None
+    def zip_to_city_state(zipcode):
+        try:
+            r = _nomi.query_postal_code(str(zipcode).strip().zfill(5))
+            if r is not None:
+                city = str(r.place_name) if r.place_name == r.place_name else ""
+                state = str(r.state_code) if r.state_code == r.state_code else ""
+                if city and state:
+                    return city, state
+        except Exception:
+            pass
+        return None, None
     HAS_PGEOCODE = True
 except ImportError:
     HAS_PGEOCODE = False
     def zip_to_latlon(zipcode):
+        return None, None
+    def zip_to_city_state(zipcode):
         return None, None
 
 # Derive origin lat/lon from SEARCH_ZIP at startup
@@ -690,7 +703,13 @@ def _cd_parse(data):
     seller = data.get("seller", {}) or {}
     city, state = seller.get("city", ""), seller.get("state", "")
     seller_zip = seller.get("zip", "")
-    location = f"{city}, {state}".strip(", ") if (city or state) else (f"ZIP {seller_zip}" if seller_zip else "N/A")
+    if city and state:
+        location = f"{city}, {state}"
+    elif seller_zip:
+        c, s = zip_to_city_state(seller_zip)
+        location = f"{c}, {s}" if (c and s) else f"ZIP {seller_zip}"
+    else:
+        location = "N/A"
     lid = data.get("_listing_id", "")
     href = data.get("_href", "")
     url = href if href else f"https://www.cars.com/vehicledetail/{lid}/"
