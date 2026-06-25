@@ -1555,14 +1555,21 @@ def scrape():
 
     # Deduplicate by VIN, then by (year, mileage, price) fingerprint
     seen_vins, seen_fp, all_results = set(), set(), []
+    def _norm(v):
+        try: return int(round(float(v))) if v is not None else None
+        except (TypeError, ValueError): return None
     for r in cg_results + cl_results + cd_results + at_results + ad_results + fb_results + eb_results:
         vin = (r.get("vin") or "").strip().upper()
-        fp = (r.get("year"), r.get("mileage"), r.get("price"))
+        fp = (_norm(r.get("year")), _norm(r.get("mileage")), _norm(r.get("price")))
         if vin and len(vin) == 17:
-            if vin in seen_vins: continue
+            if vin in seen_vins:
+                print(f"[Dedup] VIN match — dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
+                continue
             seen_vins.add(vin)
         else:
-            if fp in seen_fp: continue
+            if fp in seen_fp and fp != (None, None, None):
+                print(f"[Dedup] Fingerprint match {fp} — dropping {r.get('source')} {r.get('id')}", file=sys.stderr)
+                continue
             seen_fp.add(fp)
         all_results.append(r)
 
