@@ -1567,10 +1567,8 @@ def scrape():
         at_results = []
         if ENABLE_AUTOTRADER and AUTOTRADER_URL:
             try:
-                at_results = scrape_autotrader_cdp(pw)
-                if at_results is None:
-                    page3 = ctx.new_page()
-                    at_results = scrape_autotrader(page3)
+                page3 = ctx.new_page()
+                at_results = scrape_autotrader(page3)
             except Exception as e:
                 print(f"[AutoTrader] Failed: {e}", flush=True)
                 at_results = []
