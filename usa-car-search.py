@@ -1566,12 +1566,26 @@ def scrape():
 
         at_results = []
         if ENABLE_AUTOTRADER and AUTOTRADER_URL:
+            import signal as _signal
+
+            def _at_timeout(signum, frame):
+                raise TimeoutError("AutoTrader CDP timed out")
+
+            _signal.signal(_signal.SIGALRM, _at_timeout)
+            _signal.alarm(75)
             try:
-                page3 = ctx.new_page()
-                at_results = scrape_autotrader(page3)
+                at_results = scrape_autotrader_cdp(pw)
+                if at_results is None:
+                    page3 = ctx.new_page()
+                    at_results = scrape_autotrader(page3)
+            except TimeoutError:
+                print("[AutoTrader] Hard timeout — skipping", file=sys.stderr, flush=True)
+                at_results = []
             except Exception as e:
                 print(f"[AutoTrader] Failed: {e}", flush=True)
                 at_results = []
+            finally:
+                _signal.alarm(0)
         elif ENABLE_AUTOTRADER:
             print("[AutoTrader] Skipping — AUTOTRADER_URL not set", file=sys.stderr)
 
