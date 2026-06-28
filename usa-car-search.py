@@ -1566,23 +1566,23 @@ def scrape():
 
         at_results = []
         if ENABLE_AUTOTRADER and AUTOTRADER_URL:
-            import signal as _signal
-
-            def _at_timeout(signum, frame):
-                raise TimeoutError("AutoTrader CDP timed out")
-
-            _signal.signal(_signal.SIGALRM, _at_timeout)
-            _signal.alarm(75)
-            try:
-                at_results = scrape_autotrader_cdp(pw) or []
-            except TimeoutError:
-                print("[AutoTrader] Hard timeout — Chrome CDP did not respond in time, skipping", file=sys.stderr, flush=True)
-                at_results = []
-            except Exception as e:
-                print(f"[AutoTrader] Failed: {e}", flush=True)
-                at_results = []
-            finally:
-                _signal.alarm(0)
+            import threading as _threading
+            _at_result = [None]
+            _at_exc = [None]
+            def _run_at():
+                try:
+                    _at_result[0] = scrape_autotrader_cdp(pw) or []
+                except Exception as e:
+                    _at_exc[0] = e
+            _at_thread = _threading.Thread(target=_run_at, daemon=True)
+            _at_thread.start()
+            _at_thread.join(timeout=90)
+            if _at_thread.is_alive():
+                print("[AutoTrader] Hard timeout (90s) — Chrome CDP blocked, skipping", file=sys.stderr, flush=True)
+            elif _at_exc[0]:
+                print(f"[AutoTrader] Failed: {_at_exc[0]}", file=sys.stderr, flush=True)
+            else:
+                at_results = _at_result[0] or []
         elif ENABLE_AUTOTRADER:
             print("[AutoTrader] Skipping — AUTOTRADER_URL not set", file=sys.stderr)
 
