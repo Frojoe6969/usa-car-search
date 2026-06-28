@@ -935,12 +935,12 @@ _CHROME_LAUNCH_ARGS = [
 
 
 def _chrome_reachable():
-    import socket
+    """Check /json/version — confirms Chrome is fully CDP-ready, not just TCP-open."""
     try:
-        s = socket.create_connection((CHROME_CDP_HOST, CHROME_CDP_PORT), timeout=2)
-        s.close()
-        return True
-    except OSError:
+        import urllib.request as _urlreq
+        r = _urlreq.urlopen(f"http://{CHROME_CDP_HOST}:{CHROME_CDP_PORT}/json/version", timeout=2)
+        return r.status == 200
+    except Exception:
         return False
 
 
@@ -966,12 +966,12 @@ def _chrome_launch_and_wait():
         except Exception as e:
             print(f"[AutoTrader] Failed to launch Chrome: {e}", file=sys.stderr)
             continue
-        for _ in range(15):
+        for i in range(30):
             time.sleep(1)
             if _chrome_reachable():
-                print("[AutoTrader] Chrome CDP is now available", file=sys.stderr)
+                print(f"[AutoTrader] Chrome CDP ready after {i+1}s", file=sys.stderr)
                 return True
-        print("[AutoTrader] Chrome launched but CDP not reachable after 15s", file=sys.stderr)
+        print("[AutoTrader] Chrome launched but CDP not ready after 30s", file=sys.stderr)
         return False
     print("[AutoTrader] Could not find Chrome on Windows", file=sys.stderr)
     return False
