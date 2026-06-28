@@ -1574,12 +1574,9 @@ def scrape():
             _signal.signal(_signal.SIGALRM, _at_timeout)
             _signal.alarm(75)
             try:
-                at_results = scrape_autotrader_cdp(pw)
-                if at_results is None:
-                    page3 = ctx.new_page()
-                    at_results = scrape_autotrader(page3)
+                at_results = scrape_autotrader_cdp(pw) or []
             except TimeoutError:
-                print("[AutoTrader] Hard timeout — skipping", file=sys.stderr, flush=True)
+                print("[AutoTrader] Hard timeout — Chrome CDP did not respond in time, skipping", file=sys.stderr, flush=True)
                 at_results = []
             except Exception as e:
                 print(f"[AutoTrader] Failed: {e}", flush=True)
