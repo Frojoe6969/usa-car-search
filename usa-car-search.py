@@ -1416,6 +1416,49 @@ def _autotrader_parse_page(page):
     return results
 
 
+def _autotrader_filter(listings):
+    """Filter raw AutoTrader listings JSON (output from _at_worker.py) into normalized results."""
+    results = []
+    for item in listings:
+        try:
+            year = int(item.get("year", 0))
+        except Exception:
+            continue
+        if not (MIN_YEAR <= year <= MAX_YEAR):
+            continue
+        try:
+            mileage = int(str(item.get("mileage", "") or "").replace(",", ""))
+        except Exception:
+            mileage = None
+        if mileage is not None and mileage > MAX_MILES:
+            continue
+        try:
+            price = int(str(item.get("pricingDetail", {}).get("salePrice") or item.get("price", "") or "").replace(",", "").replace("$", ""))
+        except Exception:
+            price = None
+        trim = (item.get("trim") or "")
+        color = (item.get("color") or item.get("exteriorColor") or "")
+        if not color_matches_str(color, allow_unknown=True):
+            continue
+        vin = item.get("vin", "")
+        lid = item.get("id") or item.get("listingId") or vin
+        owner = item.get("owner", {}) or {}
+        city = owner.get("city", "")
+        state = owner.get("state", "")
+        location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
+        results.append({
+            "id": f"at_{lid}",
+            "vin": vin,
+            "title": f"{year} {item.get('make','Subaru')} {item.get('model','WRX')} {trim}".strip(),
+            "year": year, "trim": trim, "price": price, "mileage": mileage,
+            "color": color or "Unknown", "color_str": color,
+            "location": location, "distance": None, "deal": "",
+            "url": f"https://www.autotrader.com/cars-for-sale/vehicle/{lid}",
+            "source": "AutoTrader",
+        })
+    return results
+
+
 def scrape_autotrader(page):
     print("[AutoTrader] Loading...", file=sys.stderr)
     try:
@@ -2177,26 +2220,28 @@ def scrape():
             print(f"[Cars.com] Failed: {e}", flush=True)
             cd_results = []
 
-        # AutoTrader — real Chrome via CDP; daemon thread timeout because connect_over_cdp blocks in C (SIGALRM can't interrupt it)
-        import threading as _threading
-        _at_result = [None]
-        _at_exc = [None]
-        def _run_at():
-            try:
-                _at_result[0] = scrape_autotrader_cdp(pw) or []
-            except Exception as e:
-                _at_exc[0] = e
-        _at_thread = _threading.Thread(target=_run_at, daemon=True)
-        _at_thread.start()
-        _at_thread.join(timeout=150)
-        if _at_thread.is_alive():
-            print("[AutoTrader] Hard timeout (150s) — Chrome CDP blocked, skipping", file=sys.stderr, flush=True)
-            at_results = []
-        elif _at_exc[0]:
-            print(f"[AutoTrader] Failed: {_at_exc[0]}", file=sys.stderr, flush=True)
-            at_results = []
-        else:
-            at_results = _at_result[0] or []
+        # AutoTrader — real Chrome via CDP, run in subprocess so it can be killed hard on timeout
+        # (Playwright sync API is thread-locked; subprocess is the only safe way to timeout it)
+        import subprocess as _subprocess, json as _json, sys as _sys
+        _at_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_at_worker.py")
+        at_results = []
+        try:
+            _at_proc = _subprocess.run(
+                [_sys.executable, _at_script],
+                capture_output=True, text=True, timeout=150
+            )
+            if _at_proc.returncode == 0 and _at_proc.stdout.strip():
+                raw_listings = _json.loads(_at_proc.stdout.strip())
+                at_results = _autotrader_filter(raw_listings)
+                print(f"[AutoTrader] {len(at_results)} result(s) after filter (from {len(raw_listings)} raw)", file=sys.stderr, flush=True)
+            else:
+                stderr_tail = _at_proc.stderr.strip().splitlines()
+                for line in stderr_tail:
+                    print(f"[AutoTrader] {line}", file=sys.stderr, flush=True)
+        except _subprocess.TimeoutExpired:
+            print("[AutoTrader] Hard timeout (150s) — subprocess killed, skipping", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[AutoTrader] Subprocess error: {e}", file=sys.stderr, flush=True)
 
         # Facebook — uses separate context with saved session if available
         fb_results = []
