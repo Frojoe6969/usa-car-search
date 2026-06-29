@@ -290,7 +290,54 @@ Each new listing is sent as a separate message with price, mileage, color, locat
 
 ---
 
-## Automated Daily Runs
+## Docker
+
+The easiest way to run the scraper — all dependencies including Playwright and Chromium are baked into the image.
+
+**Build and run:**
+```bash
+# 1. Create your config
+cp .env.example .env
+# Edit .env with your vehicle, ZIP, Telegram credentials, etc.
+
+# 2. Create the data directory (persists seen list, tokens, session)
+mkdir -p data
+
+# 3. Build the image
+docker compose build
+
+# 4. Run (print results only)
+docker compose run --rm car-search
+
+# Run with Telegram alerts
+docker compose run --rm car-search --notify
+
+# First run — treat all listings as new
+docker compose run --rm car-search --all --notify
+```
+
+**Persistent files** (stored in `./data/` on your host):
+- `car-search-seen.json` — listing IDs from previous runs
+- `fb-session.json` — Facebook logged-in session
+- `ebay-token.txt` / `ebay-refresh-token.txt` — eBay OAuth tokens
+
+**eBay setup from inside Docker:**
+```bash
+docker compose run --rm car-search python3 ebay-oauth-setup.py
+```
+
+**AutoTrader Chrome CDP with Docker:**
+
+`docker-compose.yml` uses `network_mode: host` so the container can reach Chrome running on your host directly. Set `CHROME_CDP_HOST` in `.env` to your host IP (for WSL2: `ip route show default | awk '{print $3}'`).
+
+**Scheduled daily runs (cron on Linux/WSL2):**
+```cron
+0 17 * * * docker compose -f /path/to/usa-car-search/docker-compose.yml run --rm car-search --notify >> /path/to/search.log 2>&1
+```
+
+---
+
+## Automated Daily Runs (without Docker)
 
 Add to crontab (Linux/WSL2):
 ```bash
@@ -337,6 +384,7 @@ This means "Avon" correctly resolves to "Avon, NY · 27 mi away" rather than jus
 ## Changelog
 
 ### 2026-06-28
+- **Feature:** Docker support — `Dockerfile`, `docker-compose.yml`, `requirements.txt`, `.dockerignore` added; image includes Playwright + Chromium; persistent data via `/data` volume
 - **Feature:** AutoTrader now runs via `_at_worker.py` subprocess worker — isolates Playwright from the main process to prevent CDP/greenlet thread conflicts
 - **Fix:** AutoTrader thread timeout increased 90s → 150s; Chrome CDP readiness wait increased 30s → 45s; timing log added for debugging slow starts
 - **Fix:** AutoTrader CDP readiness check now uses `/json/version` endpoint instead of raw TCP probe — ensures Chrome is fully CDP-ready before `connect_over_cdp()`

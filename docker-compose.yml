@@ -1,0 +1,19 @@
+services:
+  car-search:
+    build: .
+    image: usa-car-search:latest
+    env_file: .env
+    volumes:
+      # Persistent data: seen list, eBay tokens, Facebook session
+      - ./data:/data
+    environment:
+      # Override file paths to point at the /data volume
+      - SEEN_FILE=/data/car-search-seen.json
+      - FB_SESSION_FILE=/data/fb-session.json
+      - EBAY_TOKEN_FILE=/data/ebay-token.txt
+      - EBAY_REFRESH_TOKEN_FILE=/data/ebay-refresh-token.txt
+    # Optional: connect to Chrome CDP on the host (for AutoTrader)
+    # Uncomment and set CHROME_CDP_HOST in .env to your host IP
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    network_mode: host   # simplest for CDP access; swap for bridge if not needed
