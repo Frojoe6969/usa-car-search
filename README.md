@@ -19,12 +19,13 @@ Works for any make and model. Set your filters once, run it on a schedule, and g
 - **Color and trim filtering** — configurable; default targets black/grey/charcoal
 - **Year and mileage filtering** — applied at scrape time for all sources
 - **eBay OAuth with auto-refresh** — access token auto-refreshed on every run; stays valid for ~18 months without manual intervention
-- **AutoTrader Chrome CDP** — connects to a real Chrome instance to bypass bot detection; auto-relaunches Chrome if connection drops; falls back to headless Playwright if CDP unavailable
+- **AutoTrader Chrome CDP** — connects to a real Chrome instance to bypass bot detection; uses subprocess worker for thread isolation; auto-relaunches Chrome if connection drops; falls back to headless Playwright if CDP unavailable
 - **Craigslist multi-region** — searches multiple metro areas in parallel, each with its own browser context to avoid threading errors
 - **CarGurus city/state/distance resolution** — when the API doesn't return a state or distance, falls back to ZIP lookup then city-name search across all US ZIP codes within radius
 - **Cars.com ZIP resolution** — resolves raw ZIP codes to City, ST format for cleaner output
 - **Facebook session persistence** — saves and reuses a logged-in session; prompts to re-auth when expired
 - **Enable/disable per source** — any source can be toggled off via env var without touching code
+- **Fully configurable** — all vehicle, location, and search criteria set via env vars; no hardcoded values
 
 ---
 
@@ -35,7 +36,7 @@ Works for any make and model. Set your filters once, run it on a schedule, and g
 | CarGurus | Browser scrape | Medium | Paste your search URL; supports 2 URLs (e.g. two trims) |
 | Cars.com | Browser scrape | Medium | Paste your search URL |
 | Craigslist | Browser scrape | Low | Multi-region, keyword search, parallel |
-| AutoTrader | Browser scrape | High | Chrome CDP recommended; auto-relaunches on disconnect |
+| AutoTrader | Browser scrape | High | Chrome CDP recommended; subprocess worker for thread isolation |
 | Facebook Marketplace | Browser scrape | High | Requires saved login session |
 | eBay Motors | REST API + scrape | Low | OAuth recommended; auto-refreshes token |
 | auto.dev | REST API | Low | Free API key required |
@@ -102,7 +103,8 @@ SEARCH_KEYWORDS=honda civic    # used for free-text search (Craigslist, Facebook
 
 ```env
 SEARCH_ZIP=90210
-SEARCH_RADIUS=150      # miles from ZIP
+SEARCH_CITY=losangeles         # city slug from facebook.com/marketplace/<city>/ and used in AutoTrader URL
+SEARCH_RADIUS=150              # miles from ZIP
 MIN_YEAR=2020
 MAX_YEAR=2023
 MAX_MILES=50000
@@ -127,8 +129,8 @@ return any(kw in c for kw in ["white", "silver", "black"])
 Edit `trim_matches()` to restrict to specific trims:
 
 ```python
-# Only STI and Limited:
-return any(t in trim_name.lower() for t in ["sti", "limited"])
+# Only specific trims:
+return any(t in trim_name.lower() for t in ["sport", "limited"])
 
 # Accept all trims:
 return True
@@ -175,6 +177,8 @@ CARSDOTCOM_URL=https://www.cars.com/shopping/results/?makes[]=honda&models[]=hon
 
 You can set `CARGURUS_URL_2` for a second CarGurus search (e.g. a different trim or body style).
 
+> **Note:** The hardcoded URL fragments in the script (CarGurus listing IDs, AutoTrader make/model codes) are vehicle-specific. If you change `SEARCH_MAKE`/`SEARCH_MODEL`, also update the pasted URLs above and the relevant constants in the script.
+
 ### Facebook Marketplace
 
 Facebook requires a real logged-in session. Run the auth setup script once:
@@ -186,7 +190,7 @@ python3 fb-auth-setup.py
 A browser window opens — log into Facebook, then press Enter. Your session is saved to `fb-session.json`. Re-run when it expires (typically every few weeks).
 
 ```env
-FB_CITY=newyork       # city slug from facebook.com/marketplace/<city>/search
+SEARCH_CITY=losangeles         # city slug from facebook.com/marketplace/<city>/search
 FB_SESSION_FILE=./fb-session.json
 ```
 
@@ -257,6 +261,8 @@ $wsl = (wsl hostname -I).Trim()
 netsh interface portproxy add v4tov4 listenport=9222 listenaddress=0.0.0.0 connectport=9222 connectaddress=$wsl
 ```
 
+**Subprocess worker:** AutoTrader runs via `_at_worker.py` as a subprocess to isolate Playwright from the main process thread, preventing CDP/greenlet conflicts.
+
 **Auto-relaunch:** If the CDP connection drops mid-run (ECONNRESET), the scraper will automatically kill and relaunch Chrome, then retry once before giving up.
 
 **Fallback:** If CDP is not configured or Chrome is unreachable, AutoTrader falls back to headless Playwright automatically — results may be limited due to bot detection.
@@ -302,10 +308,10 @@ This runs at 5 PM every day and sends Telegram alerts for any new listings found
 
 1. **Scrape** — all enabled sources run in sequence, each applying year/mileage/color/distance filters before returning results
 2. **Deduplicate** — results are merged across sources; same car matched by VIN first, then by (year, mileage, price) fingerprint with price bucketed to the nearest $500 to account for dealer fee differences
-3. **Diff against seen list** — `seen.json` stores listing IDs from prior runs; anything not in the file is flagged as new
+3. **Diff against seen list** — `car-search-seen.json` stores listing IDs from prior runs; anything not in the file is flagged as new
 4. **Rate deals** — each listing gets a deal rating based on price vs. median across all results; sources like CarGurus and Cars.com provide their own ratings which are used directly
 5. **Output** — results printed to stdout in a readable format; if `--notify` is passed, new listings are also sent to Telegram
-6. **Update seen list** — `seen.json` is updated with the current run's listings; disappeared listings are noted
+6. **Update seen list** — `car-search-seen.json` is updated with the current run's listings; disappeared listings are noted
 
 ### Location Resolution
 
@@ -320,7 +326,7 @@ This means "Avon" correctly resolves to "Avon, NY · 27 mi away" rather than jus
 
 ## Adapt for Any Vehicle
 
-1. Set `SEARCH_MAKE`, `SEARCH_MODEL`, and `SEARCH_KEYWORDS`
+1. Set `SEARCH_MAKE`, `SEARCH_MODEL`, `SEARCH_CITY`, and `SEARCH_KEYWORDS`
 2. Go to CarGurus, AutoTrader, and Cars.com → search with your filters → copy and paste the URLs into `.env`
 3. Set Craigslist regions near you (`CL_REGIONS`)
 4. Adjust `color_matches_str()` and `trim_matches()` in the script if needed
@@ -329,6 +335,13 @@ This means "Avon" correctly resolves to "Avon, NY · 27 mi away" rather than jus
 ---
 
 ## Changelog
+
+### 2026-06-28
+- **Feature:** AutoTrader now runs via `_at_worker.py` subprocess worker — isolates Playwright from the main process to prevent CDP/greenlet thread conflicts
+- **Fix:** AutoTrader thread timeout increased 90s → 150s; Chrome CDP readiness wait increased 30s → 45s; timing log added for debugging slow starts
+- **Fix:** AutoTrader CDP readiness check now uses `/json/version` endpoint instead of raw TCP probe — ensures Chrome is fully CDP-ready before `connect_over_cdp()`
+- **Refactor:** Vehicle make, model, and city are now fully configurable via env vars (`SEARCH_MAKE`, `SEARCH_MODEL`, `SEARCH_CITY`, `CL_REGIONS`) — no hardcoded values remain in source code; all filter checks, URL builders, title formatters, and keyword searches read from these variables
+- **Rename:** Seen-list file renamed from `wrx-seen.json` to `car-search-seen.json` to match the generic, vehicle-agnostic design
 
 ### 2026-06-25
 - **Fix:** eBay OAuth — removed `buy.item.summary` scope that was causing HTTP 400 errors during token refresh; only `api_scope` is required and granted by default
@@ -347,7 +360,7 @@ This means "Avon" correctly resolves to "Avon, NY · 27 mi away" rather than jus
 - Telegram notifications with deal ratings
 - Cross-source deduplication by VIN and fingerprint
 - pgeocode distance filtering
-- `seen.json` persistence between runs
+- `car-search-seen.json` persistence between runs
 - `--notify`, `--all` flags
 - `.env`-based configuration
 - `ebay-oauth-setup.py` helper script
