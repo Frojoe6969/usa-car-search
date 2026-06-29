@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-YOUR_SEARCH_MODEL search — 2019-2021, black/grey, <65k mi, 200mi of 14450.
+YOUR_SEARCH_MODEL search — 2019-2021, black/grey, <65k mi, 200mi of YOUR_ZIP.
 Scrapes CarGurus, Cars.com, and Craigslist (multi-region) with real Playwright Chromium.
 Sends Telegram alerts for new listings.
 Usage: python3 wrx-search.py [--notify] [--all]
