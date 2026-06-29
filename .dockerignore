@@ -2,7 +2,8 @@
 .git
 data/
 *.json
-*.txt
 __pycache__
 *.pyc
 *.log
+ebay-token.txt
+ebay-refresh-token.txt
