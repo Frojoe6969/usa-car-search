@@ -32,6 +32,10 @@ jobs:
         run: |
           python -m py_compile usa-car-search.py _at_worker.py ebay-oauth-setup.py fb-auth-setup.py
 
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s tests
+
   docker-build:
     name: Docker build
     runs-on: ubuntu-latest

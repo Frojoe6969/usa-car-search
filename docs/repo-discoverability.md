@@ -35,7 +35,11 @@ Suggested topics, staying under GitHub's 20-topic limit:
 
 GitHub recommends a PNG, JPG, or GIF under 1 MB. Use 1280 x 640 for best display.
 
-Recommended image brief:
+Ready-to-upload image in this repository:
+
+- `docs/social-preview.jpg`
+
+Recommended image brief used for the generated asset:
 
 - Title: `USA Car Search`
 - Subtitle: `Multi-source used car alerts for Telegram`
@@ -48,7 +52,7 @@ Upload path in GitHub UI:
 1. Open the repository.
 2. Go to **Settings**.
 3. In **Social preview**, choose **Edit**.
-4. Upload the 1280 x 640 image.
+4. Upload `docs/social-preview.jpg`.
 
 ## GitHub Features
 
