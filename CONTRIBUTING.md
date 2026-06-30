@@ -31,7 +31,7 @@ Do not include API keys, Telegram bot tokens, eBay credentials, Facebook cookies
 3. Update `README.md` and `.env.example` when behavior or configuration changes.
 4. Run a syntax check before opening a PR:
    ```bash
-   python3 -m py_compile usa-car-search.py _at_worker.py ebay-oauth-setup.py
+   python3 -m py_compile usa-car-search.py _at_worker.py ebay-oauth-setup.py fb-auth-setup.py
    ```
 5. If Docker behavior changes, verify the image still builds:
    ```bash
