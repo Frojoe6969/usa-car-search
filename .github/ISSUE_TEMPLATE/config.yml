@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and setup discussion
+    url: https://github.com/Frojoe6969/usa-car-search/discussions
+    about: Ask configuration questions or share setup notes without opening a bug.

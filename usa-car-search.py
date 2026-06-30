@@ -113,12 +113,12 @@ MAX_YEAR = 2021
 SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wrx-seen.json")
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "-1003765105884")
-TG_TOPIC_ID = os.environ.get("TG_TOPIC_ID", "966")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
+TG_TOPIC_ID = os.environ.get("TG_TOPIC_ID", "")
 
-AD_API_KEY = os.environ.get("AUTODEV_API_KEY", "sk_ad_Q4BemQeJqStltO3SGuNw6QLF")
+AD_API_KEY = os.environ.get("AUTODEV_API_KEY", "")
 
-FB_SESSION_FILE = "/home/openclaw/.openclaw/workspace/credentials/fb-session.json"
+FB_SESSION_FILE = os.environ.get("FB_SESSION_FILE", "./fb-session.json")
 FB_SEARCH_URL = (
     "https://www.facebook.com/marketplace/rochester/search/"
     "?query=subaru+wrx&categoryID=vehicles"
