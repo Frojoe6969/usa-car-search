@@ -43,9 +43,10 @@ Recommended image brief used for the generated asset:
 
 - Title: `USA Car Search`
 - Subtitle: `Multi-source used car alerts for Telegram`
-- Visual: a clean vehicle search dashboard or Telegram alert mockup
+- Visual: a clean preview of the actual Telegram daily digest format, not a separate app/dashboard UI
+- Include sample listing details that mirror real alerts: active listing count, deal rating, price, mileage, color, city/state, ZIP, distance, and source
 - Include small source labels: CarGurus, Cars.com, Craigslist, AutoTrader, Facebook Marketplace, eBay Motors, auto.dev
-- Use a solid background so it works across dark and light preview surfaces
+- Use a light solid background so it works across dark and light preview surfaces
 
 Upload path in GitHub UI:
 
