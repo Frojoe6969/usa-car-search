@@ -1,0 +1,50 @@
+name: Source request
+description: Suggest a new listing source or marketplace integration
+title: "Source request: "
+labels: [enhancement, source-request]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Source name
+      placeholder: "Example: Bring a Trailer, Cars & Bids, local dealer network"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Source URL
+      placeholder: "https://example.com"
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Why this source is useful
+      description: What listings does it add that current sources miss?
+    validations:
+      required: true
+  - type: dropdown
+    id: access
+    attributes:
+      label: Access requirements
+      options:
+        - Public pages, no login
+        - Public pages, heavy bot protection
+        - Requires account/login
+        - Requires paid API
+        - Unsure
+  - type: textarea
+    id: filters
+    attributes:
+      label: Useful filters available
+      description: Year, mileage, price, distance, trim, color, make/model, VIN, etc.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I checked the source is not already supported.
+          required: true
+        - label: I understand some sources may be rejected if they require unsafe credential handling or violate site terms.
+          required: true
