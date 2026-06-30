@@ -30,7 +30,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile usa-car-search.py _at_worker.py ebay-oauth-setup.py fb-auth-setup.py
+          python -m py_compile usa-car-search.py _at_worker.py ebay-oauth-setup.py
 
   docker-build:
     name: Docker build
