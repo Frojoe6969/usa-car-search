@@ -50,14 +50,20 @@ Docker is the fastest way to try the project without managing Python browser dep
 cp .env.example .env
 # Edit .env with your vehicle, ZIP, Telegram bot, source URLs, and API keys.
 
-docker build -t usa-car-search .
-docker run --rm --env-file .env -v "$PWD/data:/data" usa-car-search --notify
+docker compose run --rm car-search --notify
 ```
 
 Use `--all` on the first run if you want every current listing treated as new:
 
 ```bash
-docker run --rm --env-file .env -v "$PWD/data:/data" usa-car-search --all --notify
+docker compose run --rm car-search --all --notify
+```
+
+You can also build and run the image directly:
+
+```bash
+docker build -t usa-car-search .
+docker run --rm --env-file .env -v "$PWD/data:/data" usa-car-search --notify
 ```
 
 ---
@@ -76,6 +82,7 @@ Install dependencies from the project metadata:
 python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 playwright install chromium
+usa-car-search --notify
 ```
 
 Or install directly from `requirements.txt`:
@@ -108,9 +115,15 @@ load_dotenv()
 **3. Run it:**
 
 ```bash
-python3 usa-car-search.py           # print results to stdout
-python3 usa-car-search.py --notify  # also send Telegram alert
-python3 usa-car-search.py --all     # treat all listings as new (good for first run)
+usa-car-search           # print results to stdout
+usa-car-search --notify  # also send Telegram alert
+usa-car-search --all     # treat all listings as new (good for first run)
+```
+
+The legacy script path still works:
+
+```bash
+python3 usa-car-search.py --notify
 ```
 
 ---
@@ -186,26 +199,24 @@ MAX_PRICE=35000
 
 ### Color Filtering
 
-Edit `color_matches_str()` in `usa-car-search.py` to change which colors are accepted. Default: black, grey/gray, charcoal, and similar dark tones.
+Set `ALLOWED_COLORS` to a comma-separated list. Matching is case-insensitive and substring-based. Leave it blank to accept every color.
 
-```python
+```env
+ALLOWED_COLORS=black,gray,grey,charcoal,dark,obsidian,magnetic,graphite
+
 # Accept any color:
-return True
-
-# Accept specific colors only:
-return any(kw in c for kw in ["white", "silver", "black"])
+ALLOWED_COLORS=
 ```
 
 ### Trim Filtering
 
-Edit `trim_matches()` to restrict to specific trims:
+Set `ALLOWED_TRIMS` to a comma-separated list. Leave it blank to accept every trim.
 
-```python
-# Only STI and Limited:
-return any(t in trim_name.lower() for t in ["sti", "limited"])
+```env
+ALLOWED_TRIMS=limited,sti
 
-# Accept all trims:
-return True
+# Accept every trim:
+ALLOWED_TRIMS=
 ```
 
 ### Enable/Disable Sources
@@ -357,7 +368,7 @@ TG_TOPIC_ID=42   # optional: for Telegram forum/topic threads
 Run with `--notify` to send alerts:
 
 ```bash
-python3 usa-car-search.py --notify
+usa-car-search --notify
 ```
 
 Each new listing is sent as a separate message with price, mileage, color, location, distance away, deal rating, and a direct link.
@@ -373,7 +384,7 @@ crontab -e
 ```
 
 ```cron
-0 17 * * * cd /path/to/usa-car-search && python3 usa-car-search.py --notify >> search.log 2>&1
+0 17 * * * cd /path/to/usa-car-search && usa-car-search --notify >> search.log 2>&1
 ```
 
 This runs at 5 PM every day and sends Telegram alerts for any new listings found since the last run.
@@ -397,8 +408,31 @@ This means "Avon" correctly resolves to "Avon, NY - 27 mi away" rather than just
 1. Set `SEARCH_MAKE`, `SEARCH_MODEL`, and `SEARCH_KEYWORDS`
 2. Go to CarGurus, AutoTrader, and Cars.com, search with your filters, then copy and paste the URLs into `.env`
 3. Set Craigslist regions near you (`CL_REGIONS`)
-4. Adjust `color_matches_str()` and `trim_matches()` in the script if needed
+4. Set `ALLOWED_COLORS` and `ALLOWED_TRIMS` in `.env` if you want those filters
 5. Run with `--all` on first run to see all current listings, then switch to normal runs
+
+---
+
+## Tests
+
+Run the lightweight core tests locally:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+The CI workflow runs these tests across Python 3.9, 3.10, 3.11, and 3.12, then verifies the Docker image builds.
+
+---
+
+## Releases
+
+Pushing a tag such as `v1.3.1` runs the release workflow and publishes a Docker image to GitHub Container Registry:
+
+```bash
+git tag v1.3.1
+git push origin v1.3.1
+```
 
 ---
 
