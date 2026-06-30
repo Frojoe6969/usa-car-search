@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Car search — configurable via env vars (SEARCH_MAKE, SEARCH_MODEL, SEARCH_ZIP, etc.).
+Subaru WRX Premium search — 2019-2021, black/grey, <65k mi, 200mi of 14450.
 Scrapes CarGurus, Cars.com, and Craigslist (multi-region) with real Playwright Chromium.
 Sends Telegram alerts for new listings.
-Usage: python3 usa-car-search.py [--notify] [--all]
+Usage: python3 wrx-search.py [--notify] [--all]
 """
 
 import json, re, sys, os, argparse, urllib.request, urllib.parse, math, signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-# Your City (YOUR_ZIP) lat/lon
+# Rochester NY (14450) lat/lon
 ORIGIN_LAT = 43.1048
 ORIGIN_LON = -77.2767
 
@@ -70,7 +70,7 @@ except ImportError:
         return None
 
 def zip_distance_miles(zipcode):
-    """Return haversine miles from your ZIP to another ZIP, or None if unknown."""
+    """Return haversine miles from Rochester to a ZIP, or None if unknown."""
     lat, lon = zip_to_latlon(zipcode)
     if lat is None:
         return None
@@ -103,41 +103,37 @@ try:
 except ImportError:
     HAS_STEALTH = False
 
-ZIP          = os.environ.get("SEARCH_ZIP",    "YOUR_ZIP")
-SEARCH_MAKE  = os.environ.get("SEARCH_MAKE",  "YOUR_MAKE")
-SEARCH_MODEL = os.environ.get("SEARCH_MODEL", "YOUR_MODEL")
-SEARCH_CITY  = os.environ.get("SEARCH_CITY",  "your-city")
+ZIP = "14450"
 RADIUS = 200
 RADIUS_MILES = RADIUS
 MAX_MILES = 65000
 MIN_YEAR = 2019
 MAX_YEAR = 2021
 
-SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "car-search-seen.json")
+SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wrx-seen.json")
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
-TG_TOPIC_ID = os.environ.get("TG_TOPIC_ID", "")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "-1003765105884")
+TG_TOPIC_ID = os.environ.get("TG_TOPIC_ID", "966")
 
-AD_API_KEY = os.environ.get("AUTODEV_API_KEY", "YOUR_AUTODEV_API_KEY_HERE")
+AD_API_KEY = os.environ.get("AUTODEV_API_KEY", "sk_ad_Q4BemQeJqStltO3SGuNw6QLF")
 
-FB_SESSION_FILE = "fb-session.json"
+FB_SESSION_FILE = "/home/openclaw/.openclaw/workspace/credentials/fb-session.json"
 FB_SEARCH_URL = (
-    f"https://www.facebook.com/marketplace/{SEARCH_CITY}/search/"
-    f"?query={SEARCH_MAKE.lower()}+{SEARCH_MODEL.lower()}&categoryID=vehicles"
+    "https://www.facebook.com/marketplace/rochester/search/"
+    "?query=subaru+wrx&categoryID=vehicles"
     "&minPrice=15000&maxPrice=40000"
     "&radius=321"  # ~200 miles in km
 )
 FB_SEARCH_STI_URL = (
-    f"https://www.facebook.com/marketplace/{SEARCH_CITY}/search/"
-    f"?query={SEARCH_MAKE.lower()}+{SEARCH_MODEL.lower()}+sti&categoryID=vehicles"
+    "https://www.facebook.com/marketplace/rochester/search/"
+    "?query=subaru+wrx+sti&categoryID=vehicles"
     "&minPrice=15000&maxPrice=40000"
     "&radius=321"
 )
 AD_RADIUS = 200  # full radius — auto.dev supports it
 
-# CarGurus listing IDs are car-specific — update these for your make/model
-# Current values are for Subaru WRX (d2292) and WRX STI (d2341)
+# d2292 = WRX, d2293 = WRX STI — search both via the WRX page (STI appears too)
 CARGURUS_URL = (
     "https://www.cargurus.com/Cars/l-Used-Subaru-WRX-d2292"
     f"?zip={ZIP}&distance={RADIUS}"
@@ -154,25 +150,25 @@ CARGURUS_STI_URL = (
     "&sortDir=ASC&sortType=PRICE"
 )
 
-# Craigslist regions within ~200mi of Your City (YOUR_ZIP)
-CL_REGIONS = os.environ.get("CL_REGIONS", "").split(",") if os.environ.get("CL_REGIONS") else ["your-city"]  # Configure for your region
-CL_QUERY = os.environ.get("CL_QUERY", f"{SEARCH_MAKE.lower()}+{SEARCH_MODEL.lower()}")
+# Craigslist regions within ~200mi of Rochester NY (14450)
+CL_REGIONS = ["rochester", "buffalo", "syracuse", "albany", "twintiers"]
+CL_QUERY = "subaru+wrx"
 CL_MIN_PRICE = 15000
 CL_MAX_PRICE = 35000
 
 AUTOTRADER_URL = (
-    f"https://www.autotrader.com/cars-for-sale/used-cars/{SEARCH_MAKE.lower()}/{SEARCH_MODEL.lower()}/"
-    f"{SEARCH_CITY}-{ZIP}"
+    "https://www.autotrader.com/cars-for-sale/used-cars/subaru/wrx/"
+    f"rochester-ny-{ZIP}"
     f"?startYear={MIN_YEAR}&endYear={MAX_YEAR}"
     f"&searchRadius={RADIUS}"
-    "&makeCode=SUB&modelCode=SUBWRX"  # Update make/model codes for your vehicle
+    "&makeCode=SUB&modelCode=SUBWRX"
     "&extColorSimple=BLACK&extColorSimple=GRAY"
     "&listingType=USED&sortBy=distanceASC"
 )
 
 CARSDOTCOM_URL = (
     "https://www.cars.com/shopping/results/"
-    f"?stock_type=used&makes[]={SEARCH_MAKE.lower()}&models[]={SEARCH_MAKE.lower()}-{SEARCH_MODEL.lower()}"
+    "?stock_type=used&makes[]=subaru&models[]=subaru-wrx&models[]=subaru-wrx_sti"
     f"&zip={ZIP}&maximum_distance={RADIUS}"
     f"&year_min={MIN_YEAR}&year_max={MAX_YEAR}"
     f"&mileage_max={MAX_MILES}"
@@ -338,7 +334,7 @@ def _cg_parse_dom(card):
 
     return {
         'id': f'cg_{lid}',
-        'title': f"{year} {SEARCH_MAKE} {SEARCH_MODEL} {trim}".strip(),
+        'title': f"{year} Subaru WRX {trim}".strip(),
         'year': year,
         'trim': trim,
         'price': price,
@@ -436,7 +432,7 @@ def _cg_parse(data):
 def scrape_cargurus(page, url=None):
     if url is None:
         url = CARGURUS_URL
-    label = "STI" if "STI" in url else SEARCH_MODEL
+    label = "STI" if "STI" in url else "WRX"
     print(f"[CarGurus/{label}] Loading...", file=sys.stderr)
 
     intercepted = []
@@ -554,7 +550,7 @@ def scrape_cargurus(page, url=None):
                     pass
 
         # If still no distance, use state to filter obvious out-of-range listings
-        # States within ~200mi of Your City (YOUR_ZIP): NY, PA, NJ, CT, MA, VT, NH, ME, RI, MD, DE
+        # States within ~200mi of Rochester NY (14450): NY, PA, NJ, CT, MA, VT, NH, ME, RI, MD, DE
         if parsed.get("distance") is None:
             state_m = re.search(r",\s*([A-Z]{2})\b", detail_text)
             if state_m:
@@ -713,7 +709,7 @@ def scrape_craigslist(ctx):
         loc = item.get("location") or region.title()
 
         # Must mention WRX
-        if SEARCH_MODEL.lower() not in title.lower():
+        if "wrx" not in title.lower():
             continue
 
         # Year from title
@@ -862,8 +858,8 @@ def _cd_parse(data):
         mileage = None
 
     trim = data.get("trim", "")
-    make = data.get("make", SEARCH_MAKE)
-    model = data.get("model", SEARCH_MODEL)
+    make = data.get("make", "Subaru")
+    model = data.get("model", "WRX")
     title = f"{year} {make} {model} {trim}".strip()
     color = data.get("exteriorColor", "Unknown") or "Unknown"
 
@@ -961,7 +957,7 @@ def scrape_carsdotcom(page):
             if make and "SUBARU" not in make:
                 print(f"[Cars.com] skip {parsed['id']} VIN decode says make={make}", file=sys.stderr)
                 continue
-            if model and SEARCH_MODEL.upper() not in model.upper():
+            if model and "WRX" not in model:
                 print(f"[Cars.com] skip {parsed['id']} VIN decode says model={model}", file=sys.stderr)
                 continue
         results.append(parsed)
@@ -1026,7 +1022,7 @@ def scrape_facebook(ctx):
         send_telegram(
             "⚠️ <b>Facebook Marketplace session expired</b>\n"
             "WRX search is running without FB listings.\n\n"
-            "To fix: run <code>python3 fb-auth-setup.py</code>"
+            "To fix: run <code>python3 /home/openclaw/.openclaw/workspace/scripts/fb-auth-setup.py</code>"
         )
         page.close()
         return []
@@ -1140,7 +1136,7 @@ def scrape_facebook(ctx):
         results.append({
             "id": f"fb_{pid}",
             "vin": "",
-            "title": f"{year} {SEARCH_MAKE} {SEARCH_MODEL} {trim}".strip(),
+            "title": f"{year} Subaru WRX {trim}".strip(),
             "year": year,
             "trim": trim,
             "price": price,
@@ -1352,7 +1348,7 @@ def _autotrader_parse_page(page):
             results.append({
                 "id": f"at_{lid}",
                 "vin": vin,
-                "title": f"{year} {item.get('make', SEARCH_MAKE)} {item.get('model', SEARCH_MODEL)} {trim}".strip(),
+                "title": f"{year} {item.get('make','Subaru')} {item.get('model','WRX')} {trim}".strip(),
                 "year": year, "trim": trim, "price": price, "mileage": mileage,
                 "color": color or "Unknown", "color_str": color,
                 "location": location, "distance": None, "deal": "",
@@ -1385,7 +1381,7 @@ def _autotrader_parse_page(page):
         text = card.get("text", "")
         href = card.get("href", "")
         vid = card.get("vid", "")
-        if SEARCH_MODEL.lower() not in text.lower():
+        if "wrx" not in text.lower():
             continue
         year_m = re.search(r"\b(20\d{2})\b", text)
         if not year_m:
@@ -1410,7 +1406,7 @@ def _autotrader_parse_page(page):
         results.append({
             "id": f"at_{vid}",
             "vin": "",
-            "title": f"{year} {SEARCH_MAKE} {SEARCH_MODEL} {trim}".strip(),
+            "title": f"{year} Subaru WRX {trim}".strip(),
             "year": year, "trim": trim, "price": price, "mileage": mileage,
             "color": color or "Unknown", "color_str": color,
             "location": location, "distance": distance, "deal": "",
@@ -1453,7 +1449,7 @@ def _autotrader_filter(listings):
         results.append({
             "id": f"at_{lid}",
             "vin": vin,
-            "title": f"{year} {item.get('make', SEARCH_MAKE)} {item.get('model', SEARCH_MODEL)} {trim}".strip(),
+            "title": f"{year} {item.get('make','Subaru')} {item.get('model','WRX')} {trim}".strip(),
             "year": year, "trim": trim, "price": price, "mileage": mileage,
             "color": color or "Unknown", "color_str": color,
             "location": location, "distance": None, "deal": "",
@@ -1535,7 +1531,7 @@ def scrape_autotrader(page):
             text = card.get("text", "")
             href = card.get("href", "")
             vid = card.get("vid", "")
-            if SEARCH_MODEL.lower() not in text.lower():
+            if "wrx" not in text.lower():
                 continue
             year_m = re.search(r"\b(20\d{2})\b", text)
             if not year_m:
@@ -1562,7 +1558,7 @@ def scrape_autotrader(page):
             results.append({
                 "id": f"at_{vid}",
                 "vin": "",
-                "title": f"{year} {SEARCH_MAKE} {SEARCH_MODEL} {trim}".strip(),
+                "title": f"{year} Subaru WRX {trim}".strip(),
                 "year": year, "trim": trim, "price": price, "mileage": mileage,
                 "color": color or "Unknown", "color_str": color,
                 "location": location, "distance": distance, "deal": "",
@@ -1607,7 +1603,7 @@ def scrape_autotrader(page):
         state = owner.get("state", "")
         location = f"{city}, {state}".strip(", ") if (city or state) else "N/A"
         url = f"https://www.autotrader.com/cars-for-sale/vehicle/{lid}"
-        title = f"{year} {item.get('make', SEARCH_MAKE)} {item.get('model', SEARCH_MODEL)} {trim}".strip()
+        title = f"{year} {item.get('make','Subaru')} {item.get('model','WRX')} {trim}".strip()
         results.append({
             "id": f"at_{lid}",
             "vin": vin,
@@ -1623,7 +1619,7 @@ def scrape_autotrader(page):
 
 EBAY_SEARCH_URL = (
     "https://www.ebay.com/sch/Cars-Trucks/6001/i.html"
-    f"?_nkw={SEARCH_MAKE.lower()}+{SEARCH_MODEL.lower()}"
+    "?_nkw=subaru+wrx"
     "&_fsrp=1"
     "&rt=nc"
     # Note: eBay Motors ignores _stpos/_sadis for vehicle pickups; we filter by ZIP post-fetch
@@ -1672,7 +1668,7 @@ def scrape_ebay(ctx):
     candidates = []
     for card in cards:
         text = card.get("text", "")
-        if SEARCH_MODEL.lower() not in text.lower():
+        if "wrx" not in text.lower():
             continue
         year_m = re.search(r"\b(2019|202[01])\b", text)
         if not year_m:
@@ -1697,7 +1693,7 @@ def scrape_ebay(ctx):
         if color and not color_matches_str(color):
             continue
 
-        # Location/ZIP from card text ("from YOUR_ZIP" or city, ST)
+        # Location/ZIP from card text ("from 14450" or city, ST)
         loc_m = re.search(r'from\s+([A-Za-z ,]+|\d{5})', text, re.I)
         loc_txt = loc_m.group(1).strip() if loc_m else ""
 
@@ -1727,8 +1723,8 @@ def scrape_ebay(ctx):
             continue
 
         # Must be a Subaru WRX
-        if SEARCH_MAKE.lower() not in dt.lower() or SEARCH_MODEL.lower() not in dt.lower():
-            print(f"[eBay] skip {iid} not a {SEARCH_MODEL}", file=sys.stderr)
+        if "subaru" not in dt.lower() or "wrx" not in dt.lower():
+            print(f"[eBay] skip {iid} not a WRX", file=sys.stderr)
             continue
 
         # VIN from item specifics
@@ -1780,7 +1776,7 @@ def scrape_ebay(ctx):
         results.append({
             "id": f"eb_{iid}",
             "vin": vin,
-            "title": f"{item['year']} {SEARCH_MAKE} {SEARCH_MODEL} {item['trim']}".strip(),
+            "title": f"{item['year']} Subaru WRX {item['trim']}".strip(),
             "year": item["year"],
             "trim": item["trim"],
             "price": item["price"],
@@ -1862,7 +1858,7 @@ def fetch_ebay_api():
         return []
 
     results = []
-    for keyword in [f"{SEARCH_MAKE} {SEARCH_MODEL}", f"{SEARCH_MAKE} {SEARCH_MODEL} STI"]:
+    for keyword in ["Subaru WRX", "Subaru WRX STI"]:
         params = urllib.parse.urlencode({
             "q": keyword,
             "category_ids": "6001",  # eBay Motors > Cars & Trucks
@@ -1905,7 +1901,7 @@ def fetch_ebay_api():
 
         for item in items:
             title = item.get("title", "")
-            if not re.search(rf'\b{re.escape(SEARCH_MODEL)}\b', title, re.I):
+            if not re.search(r'\bWRX\b', title, re.I):
                 continue
             try:
                 price = int(float(item.get("price", {}).get("value", 0)))
@@ -2057,9 +2053,9 @@ def scrape_autodev():
         return []
 
     records = []
-    for model in [SEARCH_MODEL, f"{SEARCH_MODEL} STI"]:
+    for model in ["WRX", "WRX STI"]:
         params = {
-            "make": SEARCH_MAKE,
+            "make": "Subaru",
             "model": model,
             "year_min": MIN_YEAR,
             "year_max": MAX_YEAR,
@@ -2115,7 +2111,7 @@ def scrape_autodev():
         vdp_path = item.get("hrefTarget", "") or item.get("vdpUrl", "")
         url_vdp = f"https://auto.dev{vdp_path}" if vdp_path and vdp_path.startswith("/") else (vdp_path or f"https://auto.dev/listings/{lid}")
 
-        title = f"{year} {item.get('make', SEARCH_MAKE)} {item.get('model', SEARCH_MODEL)} {trim}".strip()
+        title = f"{year} {item.get('make','Subaru')} {item.get('model','WRX')} {trim}".strip()
 
         if not (MIN_YEAR <= year <= MAX_YEAR):
             continue
@@ -2170,7 +2166,7 @@ def scrape():
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            headless=False,
+            headless=not has_display,
             args=["--disable-blink-features=AutomationControlled"],
         )
         ctx = browser.new_context(
