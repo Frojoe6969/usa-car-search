@@ -9,6 +9,8 @@ A Python scraper that searches multiple US car listing sites for used vehicles m
 
 Works for any make and model. Set your filters once, run it on a schedule, and get notified when something new hits the market.
 
+![Telegram alert example](docs/telegram-alert-example.jpg)
+
 > **US only.** Distance filtering uses US ZIP codes via the `pgeocode` library, and all supported listing sites are US-based.
 
 ---
