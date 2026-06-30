@@ -1,5 +1,10 @@
 # USA Car Search
 
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/Frojoe6969/usa-car-search/pkgs/container/usa-car-search)
+[![Latest Release](https://img.shields.io/github/v/release/Frojoe6969/usa-car-search)](https://github.com/Frojoe6969/usa-car-search/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A Python scraper that searches multiple US car listing sites for used vehicles matching your criteria and sends Telegram alerts for new listings. Built for reliability — handles bot detection, session management, cross-source deduplication, and automatic token refresh with minimal manual intervention.
 
 Works for any make and model. Set your filters once, run it on a schedule, and get notified when something new hits the market.
