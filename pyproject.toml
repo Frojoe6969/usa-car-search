@@ -47,5 +47,8 @@ Repository = "https://github.com/Frojoe6969/usa-car-search"
 Issues = "https://github.com/Frojoe6969/usa-car-search/issues"
 Releases = "https://github.com/Frojoe6969/usa-car-search/releases"
 
+[project.scripts]
+usa-car-search = "usa_car_search.cli:main"
+
 [tool.setuptools]
-py-modules = []
+packages = ["usa_car_search"]

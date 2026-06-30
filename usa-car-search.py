@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Subaru WRX Premium search — 2019-2021, black/grey, <65k mi, 200mi of 14450.
-Scrapes CarGurus, Cars.com, and Craigslist (multi-region) with real Playwright Chromium.
-Sends Telegram alerts for new listings.
-Usage: python3 wrx-search.py [--notify] [--all]
+Search multiple US used-car listing sources and optionally send Telegram alerts.
+
+Usage:
+  python3 usa-car-search.py [--notify] [--all]
+  usa-car-search [--notify] [--all]
 """
 
 import json, re, sys, os, argparse, urllib.request, urllib.parse, math, signal
@@ -103,14 +104,53 @@ try:
 except ImportError:
     HAS_STEALTH = False
 
-ZIP = "14450"
-RADIUS = 200
-RADIUS_MILES = RADIUS
-MAX_MILES = 65000
-MIN_YEAR = 2019
-MAX_YEAR = 2021
+def _env_int(name, default):
+    value = os.environ.get(name, "")
+    if value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        print(f"[config] Invalid integer for {name}={value!r}; using {default}", file=sys.stderr)
+        return default
 
-SEEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wrx-seen.json")
+
+def _env_csv(name, default=None):
+    value = os.environ.get(name, "")
+    if value == "":
+        return list(default or [])
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _env_bool(name, default=True):
+    value = os.environ.get(name, "")
+    if value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+SEARCH_MAKE = os.environ.get("SEARCH_MAKE", "Subaru")
+SEARCH_MODEL = os.environ.get("SEARCH_MODEL", "WRX")
+SEARCH_KEYWORDS = os.environ.get("SEARCH_KEYWORDS", f"{SEARCH_MAKE} {SEARCH_MODEL}").strip()
+
+ZIP = os.environ.get("SEARCH_ZIP", "14450")
+RADIUS = _env_int("SEARCH_RADIUS", 200)
+RADIUS_MILES = RADIUS
+MAX_MILES = _env_int("MAX_MILES", 65000)
+MIN_YEAR = _env_int("MIN_YEAR", 2019)
+MAX_YEAR = _env_int("MAX_YEAR", 2021)
+MIN_PRICE = _env_int("MIN_PRICE", 15000)
+MAX_PRICE = _env_int("MAX_PRICE", 40000)
+
+origin_lat, origin_lon = zip_to_latlon(ZIP)
+if origin_lat is not None and origin_lon is not None:
+    ORIGIN_LAT = origin_lat
+    ORIGIN_LON = origin_lon
+
+SEEN_FILE = os.environ.get(
+    "SEEN_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "car-search-seen.json"),
+)
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
@@ -120,28 +160,28 @@ AD_API_KEY = os.environ.get("AUTODEV_API_KEY", "")
 
 FB_SESSION_FILE = os.environ.get("FB_SESSION_FILE", "./fb-session.json")
 FB_SEARCH_URL = (
-    "https://www.facebook.com/marketplace/rochester/search/"
-    "?query=subaru+wrx&categoryID=vehicles"
-    "&minPrice=15000&maxPrice=40000"
+    f"https://www.facebook.com/marketplace/{os.environ.get('FB_CITY', 'newyork')}/search/"
+    f"?query={urllib.parse.quote_plus(SEARCH_KEYWORDS)}&categoryID=vehicles"
+    f"&minPrice={MIN_PRICE}&maxPrice={MAX_PRICE}"
     "&radius=321"  # ~200 miles in km
 )
 FB_SEARCH_STI_URL = (
-    "https://www.facebook.com/marketplace/rochester/search/"
-    "?query=subaru+wrx+sti&categoryID=vehicles"
-    "&minPrice=15000&maxPrice=40000"
+    f"https://www.facebook.com/marketplace/{os.environ.get('FB_CITY', 'newyork')}/search/"
+    f"?query={urllib.parse.quote_plus(SEARCH_KEYWORDS)}&categoryID=vehicles"
+    f"&minPrice={MIN_PRICE}&maxPrice={MAX_PRICE}"
     "&radius=321"
 )
-AD_RADIUS = 200  # full radius — auto.dev supports it
+AD_RADIUS = RADIUS  # full radius — auto.dev supports it
 
 # d2292 = WRX, d2293 = WRX STI — search both via the WRX page (STI appears too)
-CARGURUS_URL = (
+CARGURUS_URL = os.environ.get("CARGURUS_URL") or (
     "https://www.cargurus.com/Cars/l-Used-Subaru-WRX-d2292"
     f"?zip={ZIP}&distance={RADIUS}"
     f"&minYear={MIN_YEAR}&maxYear={MAX_YEAR}"
     f"&maxMileage={MAX_MILES}"
     "&sortDir=ASC&sortType=PRICE"
 )
-CARGURUS_STI_URL = (
+CARGURUS_STI_URL = os.environ.get("CARGURUS_URL_2") or (
     "https://www.cargurus.com/Cars/l-Used-Subaru-WRX-STI-d2341"
     f"?zip={ZIP}&distance={RADIUS}"
     f"&minYear={MIN_YEAR}&maxYear={MAX_YEAR}"
@@ -151,12 +191,12 @@ CARGURUS_STI_URL = (
 )
 
 # Craigslist regions within ~200mi of Rochester NY (14450)
-CL_REGIONS = ["rochester", "buffalo", "syracuse", "albany", "twintiers"]
-CL_QUERY = "subaru+wrx"
-CL_MIN_PRICE = 15000
-CL_MAX_PRICE = 35000
+CL_REGIONS = _env_csv("CL_REGIONS", ["rochester", "buffalo", "syracuse", "albany", "twintiers"])
+CL_QUERY = urllib.parse.quote_plus(SEARCH_KEYWORDS)
+CL_MIN_PRICE = MIN_PRICE
+CL_MAX_PRICE = MAX_PRICE
 
-AUTOTRADER_URL = (
+AUTOTRADER_URL = os.environ.get("AUTOTRADER_URL") or (
     "https://www.autotrader.com/cars-for-sale/used-cars/subaru/wrx/"
     f"rochester-ny-{ZIP}"
     f"?startYear={MIN_YEAR}&endYear={MAX_YEAR}"
@@ -166,7 +206,7 @@ AUTOTRADER_URL = (
     "&listingType=USED&sortBy=distanceASC"
 )
 
-CARSDOTCOM_URL = (
+CARSDOTCOM_URL = os.environ.get("CARSDOTCOM_URL") or (
     "https://www.cars.com/shopping/results/"
     "?stock_type=used&makes[]=subaru&models[]=subaru-wrx&models[]=subaru-wrx_sti"
     f"&zip={ZIP}&maximum_distance={RADIUS}"
@@ -175,16 +215,33 @@ CARSDOTCOM_URL = (
     "&sort=list_price"
 )
 
+ALLOWED_COLORS = [c.lower() for c in _env_csv("ALLOWED_COLORS", ["black", "gray", "grey", "charcoal", "dark", "obsidian", "magnetic", "graphite"])]
+ALLOWED_TRIMS = [t.lower() for t in _env_csv("ALLOWED_TRIMS", [])]
+ENABLE_CARGURUS = _env_bool("ENABLE_CARGURUS", True)
+ENABLE_CRAIGSLIST = _env_bool("ENABLE_CRAIGSLIST", True)
+ENABLE_CARSDOTCOM = _env_bool("ENABLE_CARSDOTCOM", True)
+ENABLE_AUTOTRADER = _env_bool("ENABLE_AUTOTRADER", True)
+ENABLE_FACEBOOK = _env_bool("ENABLE_FACEBOOK", True)
+ENABLE_EBAY = _env_bool("ENABLE_EBAY", True)
+ENABLE_AUTODEV = _env_bool("ENABLE_AUTODEV", True)
+
 
 def color_matches_str(color_str, allow_unknown=False):
     if not color_str:
         return allow_unknown
+    if not ALLOWED_COLORS:
+        return True
     c = color_str.lower()
-    return any(kw in c for kw in ["black", "gray", "grey", "charcoal", "dark", "obsidian", "magnetic", "graphite"])
+    return any(kw in c for kw in ALLOWED_COLORS)
 
 
 def trim_matches(trim_name):
-    return True  # all trims allowed
+    if not ALLOWED_TRIMS:
+        return True
+    if not trim_name:
+        return False
+    trim = trim_name.lower()
+    return any(t in trim for t in ALLOWED_TRIMS)
 
 
 # ── CarGurus ────────────────────────────────────────────────────────────────
@@ -1022,7 +1079,7 @@ def scrape_facebook(ctx):
         send_telegram(
             "⚠️ <b>Facebook Marketplace session expired</b>\n"
             "WRX search is running without FB listings.\n\n"
-            "To fix: run <code>python3 /home/openclaw/.openclaw/workspace/scripts/fb-auth-setup.py</code>"
+            "To fix: run <code>python3 fb-auth-setup.py</code>"
         )
         page.close()
         return []
@@ -1155,8 +1212,8 @@ def scrape_facebook(ctx):
     return results
 
 
-CHROME_CDP_HOST = "172.29.240.1"
-CHROME_CDP_PORT = 9222
+CHROME_CDP_HOST = os.environ.get("CHROME_CDP_HOST", "172.29.240.1")
+CHROME_CDP_PORT = _env_int("CHROME_CDP_PORT", 9222)
 
 
 CHROME_PATHS = [
@@ -2164,6 +2221,8 @@ def scrape():
     os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
     os.environ.setdefault("XDG_RUNTIME_DIR", "/mnt/wslg/runtime-dir")
 
+    cg_results = cl_results = cd_results = at_results = fb_results = eb_results = ad_results = []
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=not has_display,
@@ -2176,76 +2235,93 @@ def scrape():
         )
         ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
 
-        page = ctx.new_page()
-        try:
-            cg_results = scrape_cargurus(page, CARGURUS_URL)
-        except Exception as e:
-            print(f"[CarGurus/WRX] Failed: {e}", flush=True)
-            cg_results = []
+        if ENABLE_CARGURUS:
+            page = ctx.new_page()
+            try:
+                cg_results = scrape_cargurus(page, CARGURUS_URL)
+            except Exception as e:
+                print(f"[CarGurus/primary] Failed: {e}", flush=True)
+                cg_results = []
+            finally:
+                page.close()
 
-        page_sti = ctx.new_page()
-        try:
-            cg_sti_results = scrape_cargurus(page_sti, CARGURUS_STI_URL)
-        except Exception as e:
-            print(f"[CarGurus/STI] Failed: {e}", flush=True)
-            cg_sti_results = []
-        cg_results = cg_results + cg_sti_results
+            if CARGURUS_STI_URL and CARGURUS_STI_URL != CARGURUS_URL:
+                page_sti = ctx.new_page()
+                try:
+                    cg_sti_results = scrape_cargurus(page_sti, CARGURUS_STI_URL)
+                except Exception as e:
+                    print(f"[CarGurus/secondary] Failed: {e}", flush=True)
+                    cg_sti_results = []
+                finally:
+                    page_sti.close()
+                cg_results = cg_results + cg_sti_results
+        else:
+            print("[CarGurus] Skipping — ENABLE_CARGURUS=false", file=sys.stderr)
 
-        try:
-            cl_results = scrape_craigslist(ctx)
-        except Exception as e:
-            print(f"[Craigslist] Failed: {e}", flush=True)
-            cl_results = []
+        if ENABLE_CRAIGSLIST:
+            try:
+                cl_results = scrape_craigslist(ctx)
+            except Exception as e:
+                print(f"[Craigslist] Failed: {e}", flush=True)
+                cl_results = []
+        else:
+            print("[Craigslist] Skipping — ENABLE_CRAIGSLIST=false", file=sys.stderr)
 
-        # Cars.com gets its own context with a different UA to avoid Cloudflare fingerprinting
-        try:
-            cd_ctx = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
-                viewport={"width": 1366, "height": 768},
-                locale="en-US",
-                extra_http_headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "sec-ch-ua": '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="99"',
-                    "sec-ch-ua-mobile": "?0",
-                    "sec-ch-ua-platform": '"Windows"',
-                    "Upgrade-Insecure-Requests": "1",
-                },
-            )
-            cd_ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
-            page2 = cd_ctx.new_page()
-            cd_results = scrape_carsdotcom(page2)
-            cd_ctx.close()
-        except Exception as e:
-            print(f"[Cars.com] Failed: {e}", flush=True)
-            cd_results = []
+        if ENABLE_CARSDOTCOM:
+            try:
+                cd_ctx = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+                    viewport={"width": 1366, "height": 768},
+                    locale="en-US",
+                    extra_http_headers={
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "sec-ch-ua": '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="99"',
+                        "sec-ch-ua-mobile": "?0",
+                        "sec-ch-ua-platform": '"Windows"',
+                        "Upgrade-Insecure-Requests": "1",
+                    },
+                )
+                cd_ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
+                page2 = cd_ctx.new_page()
+                cd_results = scrape_carsdotcom(page2)
+                cd_ctx.close()
+            except Exception as e:
+                print(f"[Cars.com] Failed: {e}", flush=True)
+                cd_results = []
+        else:
+            print("[Cars.com] Skipping — ENABLE_CARSDOTCOM=false", file=sys.stderr)
 
-        # AutoTrader — real Chrome via CDP, run in subprocess so it can be killed hard on timeout
-        # (Playwright sync API is thread-locked; subprocess is the only safe way to timeout it)
-        import subprocess as _subprocess, json as _json, sys as _sys
-        _at_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_at_worker.py")
-        at_results = []
-        try:
-            _at_proc = _subprocess.run(
-                [_sys.executable, _at_script],
-                capture_output=True, text=True, timeout=150
-            )
-            if _at_proc.returncode == 0 and _at_proc.stdout.strip():
-                raw_listings = _json.loads(_at_proc.stdout.strip())
-                at_results = _autotrader_filter(raw_listings)
-                print(f"[AutoTrader] {len(at_results)} result(s) after filter (from {len(raw_listings)} raw)", file=sys.stderr, flush=True)
-            else:
-                stderr_tail = _at_proc.stderr.strip().splitlines()
-                for line in stderr_tail:
-                    print(f"[AutoTrader] {line}", file=sys.stderr, flush=True)
-        except _subprocess.TimeoutExpired:
-            print("[AutoTrader] Hard timeout (150s) — subprocess killed, skipping", file=sys.stderr, flush=True)
-        except Exception as e:
-            print(f"[AutoTrader] Subprocess error: {e}", file=sys.stderr, flush=True)
+        if ENABLE_AUTOTRADER:
+            # AutoTrader — real Chrome via CDP, run in subprocess so it can be killed hard on timeout
+            import subprocess as _subprocess, json as _json, sys as _sys
+            _at_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_at_worker.py")
+            try:
+                env = os.environ.copy()
+                env["AUTOTRADER_URL"] = AUTOTRADER_URL
+                env["CHROME_CDP_HOST"] = CHROME_CDP_HOST
+                env["CHROME_CDP_PORT"] = str(CHROME_CDP_PORT)
+                _at_proc = _subprocess.run(
+                    [_sys.executable, _at_script],
+                    capture_output=True, text=True, timeout=150, env=env
+                )
+                if _at_proc.returncode == 0 and _at_proc.stdout.strip():
+                    raw_listings = _json.loads(_at_proc.stdout.strip())
+                    at_results = _autotrader_filter(raw_listings)
+                    print(f"[AutoTrader] {len(at_results)} result(s) after filter (from {len(raw_listings)} raw)", file=sys.stderr, flush=True)
+                else:
+                    stderr_tail = _at_proc.stderr.strip().splitlines()
+                    for line in stderr_tail:
+                        print(f"[AutoTrader] {line}", file=sys.stderr, flush=True)
+            except _subprocess.TimeoutExpired:
+                print("[AutoTrader] Hard timeout (150s) — subprocess killed, skipping", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[AutoTrader] Subprocess error: {e}", file=sys.stderr, flush=True)
+        else:
+            print("[AutoTrader] Skipping — ENABLE_AUTOTRADER=false", file=sys.stderr)
 
-        # Facebook — uses separate context with saved session if available
         fb_results = []
-        if os.path.exists(FB_SESSION_FILE):
+        if ENABLE_FACEBOOK and os.path.exists(FB_SESSION_FILE):
             try:
                 fb_ctx = browser.new_context(
                     storage_state=FB_SESSION_FILE,
@@ -2259,20 +2335,32 @@ def scrape():
             except Exception as e:
                 print(f"[Facebook] Failed: {e}", flush=True)
                 fb_results = []
-        else:
+        elif ENABLE_FACEBOOK:
             print("[Facebook] Skipping — no session file. Run fb-auth-setup.py to enable.", file=sys.stderr)
+        else:
+            print("[Facebook] Skipping — ENABLE_FACEBOOK=false", file=sys.stderr)
 
-        eb_results = fetch_ebay_api()
+        if ENABLE_EBAY:
+            eb_results = fetch_ebay_api()
+        else:
+            print("[eBay] Skipping — ENABLE_EBAY=false", file=sys.stderr)
 
         browser.close()
 
-    ad_results = scrape_autodev()
+    if ENABLE_AUTODEV:
+        ad_results = scrape_autodev()
+    else:
+        print("[auto.dev] Skipping — ENABLE_AUTODEV=false", file=sys.stderr)
 
-    # Deduplicate across sources: prefer VIN match, fall back to (year, mileage, price) fingerprint
+    return dedupe_listings(cg_results + cl_results + cd_results + at_results + ad_results + fb_results + eb_results)
+
+
+def dedupe_listings(listings):
+    """Deduplicate across sources: prefer VIN match, fall back to year/mileage/price."""
     seen_vins = set()
     seen_fp = set()
     all_results = []
-    for r in cg_results + cl_results + cd_results + at_results + ad_results + fb_results + eb_results:
+    for r in listings:
         vin = (r.get("vin") or "").strip().upper()
         # Normalize to int; round price to nearest $500 to catch cross-source fee differences
         def _norm(v):
@@ -2432,7 +2520,9 @@ def main():
     sold_ids = seen_ids - current_ids
 
     print(f"\n{'='*65}")
-    print(f"  WRX Premium/STI {MIN_YEAR}-{MAX_YEAR} | Black/Grey | <{MAX_MILES//1000}k mi | {RADIUS}mi of {ZIP}")
+    trim_label = ",".join(ALLOWED_TRIMS) if ALLOWED_TRIMS else "all trims"
+    color_label = ",".join(ALLOWED_COLORS) if ALLOWED_COLORS else "all colors"
+    print(f"  {SEARCH_MAKE} {SEARCH_MODEL} {MIN_YEAR}-{MAX_YEAR} | {color_label} | {trim_label} | <{MAX_MILES//1000}k mi | {RADIUS}mi of {ZIP}")
     print(f"  {len(listings)} active | {len(new_listings)} new | {len(sold_ids)} sold/removed | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*65}\n")
 
@@ -2449,7 +2539,7 @@ def main():
         print(f"  ── {len(sold_ids)} previously seen listing(s) no longer found (sold/removed) ──\n")
 
     if args.notify:
-        header = f"🚗 <b>WRX Daily Update</b> — {datetime.now().strftime('%b %d, %Y')}\n"
+        header = f"🚗 <b>{SEARCH_MAKE} {SEARCH_MODEL} Daily Update</b> — {datetime.now().strftime('%b %d, %Y')}\n"
         if not listings:
             send_telegram(header + "No active listings found today.")
         else:
