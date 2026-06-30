@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import time, socket, subprocess
 import urllib.request as _urlreq
 
-CHROME_CDP_HOST = "192.168.1.77"
+CHROME_CDP_HOST = "172.29.240.1"
 CHROME_CDP_PORT = 9222
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -23,7 +23,7 @@ CHROME_LAUNCH_ARGS = [
 
 AUTOTRADER_URL = (
     "https://www.autotrader.com/cars-for-sale/used-cars/subaru/wrx"
-    "?zip=YOUR_ZIP&searchRadius=200&startYear=2019&endYear=2021&maxMileage=65000"
+    "?zip=14450&searchRadius=200&startYear=2019&endYear=2021&maxMileage=65000"
     "&listingTypes=USED&trimCodes=WRX_PREMIUM%2CWRX_STI&sortBy=relevance"
 )
 
