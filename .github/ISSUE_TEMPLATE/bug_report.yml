@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible scraper, setup, Docker, or notification problem
+title: "Bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please remove tokens, cookies, session data, private URLs, and personal contact information before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Affected source
+      multiple: true
+      options:
+        - CarGurus
+        - Cars.com
+        - Craigslist
+        - AutoTrader
+        - Facebook Marketplace
+        - eBay Motors
+        - auto.dev
+        - Telegram notifications
+        - Docker/setup
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / environment
+      placeholder: "Windows 11 + WSL2, Ubuntu 24.04, Docker, etc."
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "python3 --version"
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      render: bash
+      placeholder: "python3 usa-car-search.py --notify"
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant sanitized config
+      description: Include enabled sources and non-secret search settings only.
+      render: dotenv
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs / traceback
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I removed tokens, cookies, credentials, session files, and private personal data.
+          required: true
+        - label: I checked whether the issue is source-specific or happens across multiple sources.
+          required: false

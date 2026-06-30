@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usa-car-search"
+version = "1.3.0"
+description = "Search multiple US used-car listing sources and send Telegram alerts for new matches."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Joe Gialanella" }
+]
+keywords = [
+  "used-cars",
+  "car-search",
+  "web-scraping",
+  "playwright",
+  "telegram-bot",
+  "docker"
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+  "Topic :: Utilities"
+]
+dependencies = [
+  "playwright",
+  "playwright-stealth",
+  "pgeocode",
+  "python-dotenv",
+  "requests"
+]
+
+[project.urls]
+Homepage = "https://github.com/Frojoe6969/usa-car-search"
+Repository = "https://github.com/Frojoe6969/usa-car-search"
+Issues = "https://github.com/Frojoe6969/usa-car-search/issues"
+Releases = "https://github.com/Frojoe6969/usa-car-search/releases"
+
+[tool.setuptools]
+py-modules = []
