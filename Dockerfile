@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # Copy source
-COPY usa-car-search.py _at_worker.py ebay-oauth-setup.py ./
+COPY usa-car-search.py _at_worker.py ebay-oauth-setup.py fb-auth-setup.py ./
 
 # Data directory for persistent files (seen list, tokens, session)
 VOLUME ["/data"]
